@@ -59,14 +59,36 @@ export default {
       }
 
       if (path === "/titles/search" && method === "GET") {
-        const keyword = url.searchParams.get("q") || "";
-        const status = url.searchParams.get("status") || "";
-        let query = "SELECT * FROM collected_titles WHERE title LIKE ?";
-        const binds = ["%" + keyword + "%"];
-        if (status) { query += " AND status = ?"; binds.push(status); }
-        query += " ORDER BY created_at DESC LIMIT 10000";
-        const { results } = await env.DB.prepare(query).bind(...binds).all();
-        return json({ results });
+        const q = url.searchParams.get("q") || "";
+        const { results } = await env.DB.prepare(
+          "SELECT * FROM collected_titles WHERE title LIKE ? ORDER BY id DESC LIMIT 50"
+        ).bind('%' + q + '%').all();
+        
+        // 각 타이틀에 대해 발행된 블로그 정보 매칭
+        const enriched = [];
+        for (const t of results) {
+          const words = t.title.split(/\s+/).filter(w => w.length >= 2).slice(0, 3);
+          let matchedBlogs = [];
+          for (const w of words) {
+            const { results: posts } = await env.DB.prepare(
+              "SELECT p.title, p.url, b.name as blog_name, b.platform FROM my_posts p JOIN blogs b ON p.blog_id = b.id WHERE p.title LIKE ? LIMIT 5"
+            ).bind('%' + w + '%').all();
+            matchedBlogs.push(...posts);
+          }
+          const seen = new Set();
+          const unique = matchedBlogs.filter(p => {
+            const k = p.url || p.title;
+            if (seen.has(k)) return false;
+            seen.add(k); return true;
+          });
+          // 2개 이상 키워드 매칭된 것만
+          const filtered = unique.filter(p => {
+            const matched = words.filter(w => p.title && p.title.includes(w)).length;
+            return matched >= 2;
+          }).slice(0, 3);
+          enriched.push({ ...t, published_in: filtered });
+        }
+        return json(enriched);
       }
 
       if (path === "/titles/status" && method === "PUT") {
@@ -227,6 +249,106 @@ export default {
           days: parseInt(days),
         });
       }
+
+      
+      // --- 타이틀 발행 블로그 매칭 ---
+      if (path === "/titles/match" && method === "POST") {
+        const body = await request.json();
+        const titles = body.titles || [];
+        const results = [];
+        for (const t of titles) {
+          const words = t.split(/\s+/).filter(w => w.length >= 2).slice(0, 5);
+          let posts = [];
+          for (const w of words) {
+            const { results: found } = await env.DB.prepare(
+              "SELECT p.title, p.url, p.published_at, p.keywords, b.name as blog_name, b.url as blog_url FROM my_posts p JOIN blogs b ON p.blog_id = b.id WHERE p.title LIKE ? LIMIT 20"
+            ).bind('%' + w + '%').all();
+            posts.push(...found);
+          }
+          const seen = new Set();
+          const unique = posts.filter(p => {
+            const key = p.url || p.title;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          const matchCount = {};
+          for (const p of unique) {
+            const matched = words.filter(w => p.title && p.title.includes(w)).length;
+            matchCount[p.url || p.title] = matched;
+          }
+          const sorted = unique.sort((a, b) => (matchCount[b.url || b.title] || 0) - (matchCount[a.url || a.title] || 0)).slice(0, 5);
+          results.push({ title: t, published: sorted });
+        }
+        return json(results);
+      }
+
+      // --- 타이틀 최적 블로그 추천 ---
+      if (path === "/titles/recommend" && method === "POST") {
+        const body = await request.json();
+        const titles = body.titles || [];
+        const { results: blogs } = await env.DB.prepare("SELECT * FROM blogs").all();
+        const results = [];
+        for (const t of titles) {
+          const stopWords = ['2024','2025','2026','그리고','하는','에서','으로','위한','대한','이란','what','the','how','총정리'];
+          const words = t.split(/\s+/).filter(w => w.length >= 2 && !stopWords.includes(w)).slice(0, 6);
+          if (words.length === 0) { results.push({ title: t, recommendation: null, reason: "키워드 추출 불가" }); continue; }
+          const blogScores = {};
+          for (const b of blogs) { blogScores[b.id] = { blog_name: b.name, blog_url: b.url, platform: b.platform, score: 0, impressions: 0, clicks: 0, reasons: [] }; }
+          for (const w of words) {
+            const { results: kwData } = await env.DB.prepare("SELECT site, SUM(impressions) as imp, SUM(clicks) as clk FROM gsc_keywords WHERE query LIKE ? GROUP BY site").bind('%' + w + '%').all();
+            for (const kw of kwData) {
+              for (const b of blogs) {
+                try {
+                  const host = new URL(b.url || 'http://x').hostname;
+                  if (kw.site && kw.site.includes(host)) {
+                    blogScores[b.id].score += (kw.imp || 0) * 2 + (kw.clk || 0) * 10;
+                    blogScores[b.id].impressions += kw.imp || 0;
+                    blogScores[b.id].clicks += kw.clk || 0;
+                    blogScores[b.id].reasons.push(w + ':' + (kw.imp||0) + '노출');
+                  }
+                } catch(e) {}
+              }
+            }
+          }
+          const dupCount = {};
+          for (const w of words) {
+            const { results: dups } = await env.DB.prepare("SELECT blog_id, COUNT(*) as cnt FROM my_posts WHERE title LIKE ? GROUP BY blog_id").bind('%' + w + '%').all();
+            for (const d of dups) { dupCount[d.blog_id] = (dupCount[d.blog_id] || 0) + d.cnt; }
+          }
+          const ranked = Object.values(blogScores).map(bs => {
+            const bid = blogs.find(b => b.name === bs.blog_name)?.id;
+            const penalty = (dupCount[bid] || 0) * 5;
+            return { ...bs, dup_count: dupCount[bid] || 0, final_score: bs.score - penalty };
+          }).sort((a, b) => b.final_score - a.final_score);
+          const top = ranked[0];
+          results.push({ title: t, recommendation: top.blog_name, blog_url: top.blog_url, score: top.final_score, impressions: top.impressions, clicks: top.clicks, dup_count: top.dup_count, reasons: top.reasons.slice(0, 5), all_blogs: ranked.slice(0, 3) });
+        }
+        return json(results);
+      }
+
+      // --- 타이틀 상세 (클릭시 정보) ---
+      if (path.startsWith("/titles/detail/") && method === "GET") {
+        const titleId = path.split("/titles/detail/")[1];
+        const { results: titleRows } = await env.DB.prepare("SELECT * FROM collected_titles WHERE id = ?").bind(titleId).all();
+        if (titleRows.length === 0) return json({ error: "Not found" }, 404);
+        const title = titleRows[0];
+        const words = title.title.split(/\s+/).filter(w => w.length >= 2).slice(0, 5);
+        let relatedPosts = [];
+        for (const w of words) {
+          const { results: found } = await env.DB.prepare("SELECT p.*, b.name as blog_name FROM my_posts p JOIN blogs b ON p.blog_id = b.id WHERE p.title LIKE ? LIMIT 10").bind('%' + w + '%').all();
+          relatedPosts.push(...found);
+        }
+        const seen = new Set();
+        relatedPosts = relatedPosts.filter(p => { const k = p.url||p.title; if(seen.has(k)) return false; seen.add(k); return true; }).slice(0, 10);
+        let gscData = [];
+        for (const w of words) {
+          const { results: kw } = await env.DB.prepare("SELECT site, query, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(position) as avg_position FROM gsc_keywords WHERE query LIKE ? GROUP BY site, query ORDER BY impressions DESC LIMIT 10").bind('%' + w + '%').all();
+          gscData.push(...kw);
+        }
+        return json({ title: title, related_posts: relatedPosts, gsc_keywords: gscData.slice(0, 20) });
+      }
+
 
       return json({ error: "Not found" }, 404);
     } catch (e) {
