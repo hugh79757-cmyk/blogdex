@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import api from './api'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const tabs = ['대시보드', '사이트별', '키워드', '리라이트 큐', '타이틀 관리', '타이틀 수집', '키워드 체크']
+const tabs = ['대시보드', '사이트별', '키워드', '리라이트 큐', '타이틀 관리', '타이틀 수집', '키워드 체크', '수익 기회']
 
 const HIGH_PATTERNS = ['추천','비교','가격','후기','리뷰','순위','신청','방법','절차','가입','등록','발급','할인','쿠폰','무료','혜택','보험','대출','적금','투자','보조금','지원금','환급','세금','vs','차이','장단점','구매']
 const LOW_PATTERNS = ['뜻','의미','영어로','누구','나이','키','몸무게','생일','mbti','학력']
@@ -888,6 +888,165 @@ function TitleCrawler() {
   )
 }
 
+
+function OpportunityDashboard() {
+  const [rewrite, setRewrite] = useState([])
+  const [topPages, setTopPages] = useState([])
+  const [seoOpp, setSeoOpp] = useState([])
+  const [blogEff, setBlogEff] = useState([])
+  const [rpmRanking, setRpmRanking] = useState([])
+  const [revSummary, setRevSummary] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [panel, setPanel] = useState('rewrite')
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/analysis/rewrite-targets'),
+      api.get('/analysis/top-pages'),
+      api.get('/analysis/seo-opportunity'),
+      api.get('/analysis/blog-efficiency'),
+      api.get('/analysis/rpm-ranking'),
+      api.get('/analysis/revenue-summary'),
+    ]).then(([r, t, s, b, rpm, rev]) => {
+      setRewrite(r); setTopPages(t); setSeoOpp(s); setBlogEff(b); setRpmRanking(rpm||[]); setRevSummary(rev||[]); setLoading(false)
+    }).catch(e => { console.error(e); setLoading(false) })
+  }, [])
+
+  if (loading) return <div style={{padding:40,textAlign:'center'}}>분석 데이터 로딩 중...</div>
+
+  const panelBtns = [
+    {key:'rewrite', label:'타이틀 리라이트 대상', count:rewrite.length, color:'#ef4444'},
+    {key:'top', label:'트래픽 TOP 글', count:topPages.length, color:'#3b82f6'},
+    {key:'seo', label:'구글 SEO 보강', count:seoOpp.length, color:'#f59e0b'},
+    {key:'eff', label:'블로그별 효율', count:blogEff.length, color:'#10b981'},
+    {key:'rpm', label:'RPM 높은 글', count:rpmRanking.length, color:'#8b5cf6'},
+    {key:'rev', label:'사이트별 수익', count:revSummary.length, color:'#ec4899'},
+  ]
+
+  const thStyle = {padding:'8px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'left',fontSize:13,fontWeight:600,background:'#f9fafb'}
+  const tdStyle = {padding:'8px 12px',borderBottom:'1px solid #f3f4f6',fontSize:13}
+
+  return <div>
+    <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
+      {panelBtns.map(b => (
+        <button key={b.key} onClick={() => setPanel(b.key)} style={{
+          padding:'12px 20px', borderRadius:10, border: panel===b.key ? '2px solid '+b.color : '1px solid #e5e7eb',
+          background: panel===b.key ? b.color+'15' : '#fff', cursor:'pointer', minWidth:180
+        }}>
+          <div style={{fontSize:24,fontWeight:700,color:b.color}}>{b.count}</div>
+          <div style={{fontSize:13,color:'#374151',marginTop:4}}>{b.label}</div>
+        </button>
+      ))}
+    </div>
+
+    {panel==='rewrite' && <div>
+      <h3 style={{marginBottom:12}}>노출은 되지만 클릭이 없는 글 - 타이틀 변경 필요</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>URL</th>
+          <th style={thStyle}>노출</th><th style={thStyle}>순위</th><th style={thStyle}>검색어</th>
+        </tr></thead>
+        <tbody>{rewrite.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#6b7280',fontSize:12}}>{decodeURIComponent(r.page).split('/').pop() || r.page}</a>
+          </td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:600}}>{r.imp}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.pos}</td>
+          <td style={{...tdStyle,fontSize:11,color:'#6b7280',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.queries}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='top' && <div>
+      <h3 style={{marginBottom:12}}>페이지뷰 TOP 30 - 가장 많이 읽히는 글</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>URL</th>
+          <th style={thStyle}>PV</th><th style={thStyle}>세션</th>
+        </tr></thead>
+        <tbody>{topPages.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,maxWidth:350,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#6b7280',fontSize:12}}>{decodeURIComponent(r.page).split('/').pop() || r.page}</a>
+          </td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color:'#059669'}}>{r.pv}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.sess}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='seo' && <div>
+      <h3 style={{marginBottom:12}}>GA4 트래픽 있지만 구글 노출 없음 - SEO 보강 대상</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>URL</th><th style={thStyle}>PV</th>
+        </tr></thead>
+        <tbody>{seoOpp.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,maxWidth:400,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#6b7280',fontSize:12}}>{decodeURIComponent(r.page).split('/').pop() || r.page}</a>
+          </td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color:'#d97706'}}>{r.pv}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='eff' && <div>
+      <h3 style={{marginBottom:12}}>블로그별 효율 - 글 1편당 평균 PV</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>총 PV</th>
+          <th style={thStyle}>글 수</th><th style={thStyle}>글당 PV</th>
+        </tr></thead>
+        <tbody>{blogEff.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.total_pv?.toLocaleString()}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.pages}</td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color:'#059669'}}>{r.pv_per_page}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='rpm' && <div>
+      <h3 style={{marginBottom:12}}>RPM 높은 글 TOP 50 - 이런 주제가 돈이 됩니다</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>URL</th>
+          <th style={thStyle}>PV</th><th style={thStyle}>수익($)</th><th style={thStyle}>RPM($)</th>
+        </tr></thead>
+        <tbody>{rpmRanking.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#6b7280',fontSize:12}}>{decodeURIComponent(r.page).split('/').pop() || r.page}</a>
+          </td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.pv}</td>
+          <td style={{...tdStyle,textAlign:'right',color:'#059669'}}>${r.rev?.toFixed(2)}</td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color: r.rpm > 10 ? '#dc2626' : r.rpm > 5 ? '#f59e0b' : '#6b7280'}}>${r.rpm?.toFixed(2)}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='rev' && <div>
+      <h3 style={{marginBottom:12}}>사이트별 수익 요약 (30일) - 어디에 글을 써야 돈이 되나</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>총 PV</th>
+          <th style={thStyle}>총 수익($)</th><th style={thStyle}>RPM($)</th><th style={thStyle}>글 수</th>
+        </tr></thead>
+        <tbody>{revSummary.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.total_pv?.toLocaleString()}</td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color:'#059669'}}>${r.total_rev?.toFixed(2)}</td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color: r.rpm > 5 ? '#dc2626' : r.rpm > 2 ? '#f59e0b' : '#6b7280'}}>${r.rpm?.toFixed(2)}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.pages}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+  </div>
+}
+
 function KeywordCheck() {
   const [keyword, setKeyword] = useState('')
   const [results, setResults] = useState([])
@@ -968,6 +1127,7 @@ function App() {
       {tab===4 && <TitleManager/>}
       {tab===5 && <TitleCrawler/>}
       {tab===6 && <KeywordCheck/>}
+      {tab===7 && <OpportunityDashboard/>}
     </div>
   )
 }

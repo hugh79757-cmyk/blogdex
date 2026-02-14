@@ -394,7 +394,7 @@ export default {
       const data = body.data || [];
       if (data.length === 0) return json({ inserted: 0 });
       const stmt = env.DB.prepare(
-        "INSERT OR REPLACE INTO ga4_pageviews (site, date, page, pageviews, sessions) VALUES (?, ?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO ga4_pageviews (site, date, page, pageviews, sessions, revenue) VALUES (?, ?, ?, ?, ?, ?)"
       );
       const chunks = [];
       for (let i = 0; i < data.length; i += 50) {
@@ -402,11 +402,78 @@ export default {
       }
       let total = 0;
       for (const chunk of chunks) {
-        const batch = chunk.map(d => stmt.bind(d.site, d.date, d.page, d.pageviews || 0, d.sessions || 0));
+        const batch = chunk.map(d => stmt.bind(d.site, d.date, d.page, d.pageviews || 0, d.sessions || 0, d.revenue || 0));
         await env.DB.batch(batch);
         total += chunk.length;
       }
       return json({ inserted: total });
+    }
+
+    
+    // === 수익 기회 분석 ===
+    if (path === "/analysis/rewrite-targets" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        "SELECT page, site, SUM(impressions) as imp, SUM(clicks) as clk, ROUND(AVG(position),1) as pos, GROUP_CONCAT(DISTINCT query) as queries FROM gsc_keywords WHERE page != '' GROUP BY page HAVING imp >= 10 AND clk = 0 ORDER BY imp DESC LIMIT 30"
+      ).all();
+      return json(results);
+    }
+
+    if (path === "/analysis/top-pages" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        "SELECT site, page, SUM(pageviews) as pv, SUM(sessions) as sess FROM ga4_pageviews GROUP BY site, page ORDER BY pv DESC LIMIT 30"
+      ).all();
+      return json(results);
+    }
+
+    if (path === "/analysis/seo-opportunity" && method === "GET") {
+      const { results: ga4Top } = await env.DB.prepare(
+        "SELECT site, page, SUM(pageviews) as pv FROM ga4_pageviews GROUP BY site, page HAVING pv >= 10 ORDER BY pv DESC LIMIT 200"
+      ).all();
+      const { results: gscPages } = await env.DB.prepare(
+        "SELECT DISTINCT page FROM gsc_keywords WHERE page != ''"
+      ).all();
+      const gscSet = new Set(gscPages.map(r => r.page));
+      const opportunities = ga4Top.filter(r => !gscSet.has(r.page)).slice(0, 30);
+      return json(opportunities);
+    }
+
+    if (path === "/analysis/blog-efficiency" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        "SELECT g.site, SUM(g.pageviews) as total_pv, COUNT(DISTINCT g.page) as pages, ROUND(1.0 * SUM(g.pageviews) / COUNT(DISTINCT g.page), 1) as pv_per_page FROM ga4_pageviews g GROUP BY g.site ORDER BY pv_per_page DESC"
+      ).all();
+      return json(results);
+    }
+
+    
+    if (path === "/analysis/rpm-ranking" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT site, page, 
+         SUM(pageviews) as pv, 
+         SUM(revenue) as rev,
+         ROUND(SUM(revenue) / SUM(pageviews) * 1000, 2) as rpm
+         FROM ga4_pageviews 
+         WHERE pageviews > 0
+         GROUP BY site, page 
+         HAVING rev > 0
+         ORDER BY rpm DESC 
+         LIMIT 50`
+      ).all();
+      return json(results);
+    }
+
+    if (path === "/analysis/revenue-summary" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT site,
+         SUM(pageviews) as total_pv,
+         SUM(revenue) as total_rev,
+         ROUND(SUM(revenue) / SUM(pageviews) * 1000, 2) as rpm,
+         COUNT(DISTINCT page) as pages
+         FROM ga4_pageviews
+         WHERE pageviews > 0
+         GROUP BY site
+         ORDER BY total_rev DESC`
+      ).all();
+      return json(results);
     }
 
     return json({ error: "Not found" }, 404);
@@ -454,7 +521,7 @@ export default {
       const data = body.data || [];
       if (data.length === 0) return json({ inserted: 0 });
       const stmt = env.DB.prepare(
-        "INSERT OR REPLACE INTO ga4_pageviews (site, date, page, pageviews, sessions) VALUES (?, ?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO ga4_pageviews (site, date, page, pageviews, sessions, revenue) VALUES (?, ?, ?, ?, ?, ?)"
       );
       const chunks = [];
       for (let i = 0; i < data.length; i += 50) {
@@ -462,11 +529,78 @@ export default {
       }
       let total = 0;
       for (const chunk of chunks) {
-        const batch = chunk.map(d => stmt.bind(d.site, d.date, d.page, d.pageviews || 0, d.sessions || 0));
+        const batch = chunk.map(d => stmt.bind(d.site, d.date, d.page, d.pageviews || 0, d.sessions || 0, d.revenue || 0));
         await env.DB.batch(batch);
         total += chunk.length;
       }
       return json({ inserted: total });
+    }
+
+    
+    // === 수익 기회 분석 ===
+    if (path === "/analysis/rewrite-targets" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        "SELECT page, site, SUM(impressions) as imp, SUM(clicks) as clk, ROUND(AVG(position),1) as pos, GROUP_CONCAT(DISTINCT query) as queries FROM gsc_keywords WHERE page != '' GROUP BY page HAVING imp >= 10 AND clk = 0 ORDER BY imp DESC LIMIT 30"
+      ).all();
+      return json(results);
+    }
+
+    if (path === "/analysis/top-pages" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        "SELECT site, page, SUM(pageviews) as pv, SUM(sessions) as sess FROM ga4_pageviews GROUP BY site, page ORDER BY pv DESC LIMIT 30"
+      ).all();
+      return json(results);
+    }
+
+    if (path === "/analysis/seo-opportunity" && method === "GET") {
+      const { results: ga4Top } = await env.DB.prepare(
+        "SELECT site, page, SUM(pageviews) as pv FROM ga4_pageviews GROUP BY site, page HAVING pv >= 10 ORDER BY pv DESC LIMIT 200"
+      ).all();
+      const { results: gscPages } = await env.DB.prepare(
+        "SELECT DISTINCT page FROM gsc_keywords WHERE page != ''"
+      ).all();
+      const gscSet = new Set(gscPages.map(r => r.page));
+      const opportunities = ga4Top.filter(r => !gscSet.has(r.page)).slice(0, 30);
+      return json(opportunities);
+    }
+
+    if (path === "/analysis/blog-efficiency" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        "SELECT g.site, SUM(g.pageviews) as total_pv, COUNT(DISTINCT g.page) as pages, ROUND(1.0 * SUM(g.pageviews) / COUNT(DISTINCT g.page), 1) as pv_per_page FROM ga4_pageviews g GROUP BY g.site ORDER BY pv_per_page DESC"
+      ).all();
+      return json(results);
+    }
+
+    
+    if (path === "/analysis/rpm-ranking" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT site, page, 
+         SUM(pageviews) as pv, 
+         SUM(revenue) as rev,
+         ROUND(SUM(revenue) / SUM(pageviews) * 1000, 2) as rpm
+         FROM ga4_pageviews 
+         WHERE pageviews > 0
+         GROUP BY site, page 
+         HAVING rev > 0
+         ORDER BY rpm DESC 
+         LIMIT 50`
+      ).all();
+      return json(results);
+    }
+
+    if (path === "/analysis/revenue-summary" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT site,
+         SUM(pageviews) as total_pv,
+         SUM(revenue) as total_rev,
+         ROUND(SUM(revenue) / SUM(pageviews) * 1000, 2) as rpm,
+         COUNT(DISTINCT page) as pages
+         FROM ga4_pageviews
+         WHERE pageviews > 0
+         GROUP BY site
+         ORDER BY total_rev DESC`
+      ).all();
+      return json(results);
     }
 
     return json({ error: "Not found" }, 404);
