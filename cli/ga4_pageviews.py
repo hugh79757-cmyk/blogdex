@@ -14,7 +14,7 @@ console = Console()
 PROPERTIES = {
     "407313218": "techpawz.com",
     "502482181": "info.techpawz.com",
-    "437320334": "biz1.techpawz.com",
+    # "437320334": "biz1.techpawz.com",  # 죽은 사이트, rotcha.kr과 중복
     "521925869": "biz.techpawz.com",
     "407323015": "rotcha.kr",
     "520232186": "hotissue.rotcha.kr",
