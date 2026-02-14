@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react'
 import api from './api'
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 const tabs = ['대시보드', '사이트별', '키워드', '리라이트 큐', '타이틀 관리', '키워드 체크']
-
-const COLORS = { high: '#ef4444', medium: '#f59e0b', low: '#9ca3af' }
 
 const HIGH_PATTERNS = ['추천','비교','가격','후기','리뷰','순위','신청','방법','절차','가입','등록','발급','할인','쿠폰','무료','혜택','보험','대출','적금','투자','보조금','지원금','환급','세금','vs','차이','장단점','구매']
 const LOW_PATTERNS = ['뜻','의미','영어로','누구','나이','키','몸무게','생일','mbti','학력']
@@ -51,21 +49,26 @@ function useSort(defaultField, defaultDir='desc') {
   return { sortField, sortDir, onSort, sortData }
 }
 
+function StatCard({ label, value, color }) {
+  return (
+    <div style={{padding:16,background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',boxShadow:'0 1px 3px rgba(0,0,0,0.05)'}}>
+      <div style={{fontSize:13,color:'#6b7280',marginBottom:4}}>{label}</div>
+      <div style={{fontSize:28,fontWeight:700,color:color||'#111'}}>{value}</div>
+    </div>
+  )
+}
 
 function Dashboard() {
   const [summary, setSummary] = useState(null)
   const [daily, setDaily] = useState([])
   const [days, setDays] = useState(30)
-  const { sortField, sortDir, onSort, sortData } = useSort('impressions')
-
-
 
   useEffect(() => {
     api.get('/dashboard/summary?days=' + days).then(r => setSummary(r.data))
     api.get('/gsc/daily?days=' + days).then(r => setDaily(r.data))
   }, [days])
 
-  if (!summary) return <p style={{padding:20}}>로딩 중...</p>
+  if (!summary) return (<p style={{padding:20}}>로딩 중...</p>)
 
   return (
     <div>
@@ -77,14 +80,12 @@ function Dashboard() {
           </button>
         ))}
       </div>
-
       <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:24}}>
         <StatCard label="블로그" value={summary.blogs} />
         <StatCard label="포스트" value={summary.posts?.toLocaleString()} />
-        <StatCard label={`클릭 (${days}일)`} value={summary.gsc_clicks?.toLocaleString()} color="#10b981" />
-        <StatCard label={`노출 (${days}일)`} value={summary.gsc_impressions?.toLocaleString()} color="#3b82f6" />
+        <StatCard label={days+'일 클릭'} value={summary.gsc_clicks?.toLocaleString()} color="#10b981" />
+        <StatCard label={days+'일 노출'} value={summary.gsc_impressions?.toLocaleString()} color="#3b82f6" />
       </div>
-
       <h3 style={{marginBottom:12}}>일별 클릭·노출 추이</h3>
       {daily.length > 0 ? (
         <ResponsiveContainer width="100%" height={300}>
@@ -98,7 +99,7 @@ function Dashboard() {
             <Line yAxisId="left" type="monotone" dataKey="clicks" stroke="#10b981" name="클릭" strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
-      ) : <p style={{color:'#999'}}>데이터 없음</p>}
+      ) : (<p style={{color:'#999'}}>데이터 없음</p>)}
     </div>
   )
 }
@@ -106,6 +107,7 @@ function Dashboard() {
 function SitesView() {
   const [sites, setSites] = useState([])
   const [days, setDays] = useState(30)
+  const { sortField, sortDir, onSort, sortData } = useSort('impressions')
 
   useEffect(() => {
     api.get('/gsc/sites?days=' + days).then(r => setSites(r.data))
@@ -121,9 +123,8 @@ function SitesView() {
           </button>
         ))}
       </div>
-
       {sites.length > 0 ? (
-        <>
+        <div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={sites.filter(s => s.impressions > 0)}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -134,7 +135,6 @@ function SitesView() {
               <Bar dataKey="clicks" fill="#10b981" name="클릭" />
             </BarChart>
           </ResponsiveContainer>
-
           <table style={tableStyle}>
             <thead>
               <tr style={{background:'#f8fafc'}}>
@@ -144,9 +144,8 @@ function SitesView() {
                 <SortHeader label="CTR" field="ctr" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
               </tr>
             </thead>
-
             <tbody>
-              {sites.map((s,i) => (
+              {sortData(sites).map((s,i) => (
                 <tr key={i} style={{borderBottom:'1px solid #eee'}}>
                   <td style={tdStyle}>{s.site}</td>
                   <td style={{...tdStyle,textAlign:'right',color:'#10b981',fontWeight:600}}>{s.clicks}</td>
@@ -156,8 +155,8 @@ function SitesView() {
               ))}
             </tbody>
           </table>
-        </>
-      ) : <p style={{color:'#999'}}>데이터 없음</p>}
+        </div>
+      ) : (<p style={{color:'#999'}}>데이터 없음</p>)}
     </div>
   )
 }
@@ -168,11 +167,8 @@ function KeywordsView() {
   const [filter, setFilter] = useState('')
   const { sortField, sortDir, onSort, sortData } = useSort('impressions')
 
-
   useEffect(() => {
-    let url = '/gsc/keywords?days=' + days + '&limit=200'
-    if (filter) url += '&value=' + filter
-    api.get(url).then(r => {
+    api.get('/gsc/keywords?days=' + days + '&limit=200').then(r => {
       const data = r.data.map(k => ({...k, value: classifyKw(k.query)}))
       if (filter) {
         setKeywords(data.filter(k => k.value === filter))
@@ -194,30 +190,27 @@ function KeywordsView() {
         <span style={{width:16}} />
         {[{l:'전체',v:''},{l:'HIGH',v:'high'},{l:'MED',v:'medium'},{l:'LOW',v:'low'}].map(f => (
           <button key={f.v} onClick={() => setFilter(f.v)}
-            style={{...pillStyle, background: filter===f.v ? (COLORS[f.v]||'#3b82f6') : '#e5e7eb', color: filter===f.v ? '#fff' : '#333'}}>
+            style={{...pillStyle, background: filter===f.v ? '#3b82f6' : '#e5e7eb', color: filter===f.v ? '#fff' : '#333'}}>
             {f.l}
           </button>
         ))}
       </div>
-
       <div style={{marginBottom:8,color:'#666',fontSize:13}}>
         총 {keywords.length}개 | HIGH {keywords.filter(k=>k.value==='high').length} | MED {keywords.filter(k=>k.value==='medium').length} | LOW {keywords.filter(k=>k.value==='low').length}
       </div>
-
       <table style={tableStyle}>
-                  <thead>
-            <tr style={{background:'#f8fafc'}}>
-              <SortHeader label="키워드" field="query" sortField={sortField} sortDir={sortDir} onSort={onSort} />
-              <SortHeader label="가치" field="value" sortField={sortField} sortDir={sortDir} onSort={onSort} />
-              <SortHeader label="노출" field="impressions" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
-              <SortHeader label="클릭" field="clicks" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
-              <SortHeader label="CTR" field="ctr" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
-              <SortHeader label="순위" field="avg_position" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
-            </tr>
-          </thead>
-
+        <thead>
+          <tr style={{background:'#f8fafc'}}>
+            <SortHeader label="키워드" field="query" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="가치" field="value" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="노출" field="impressions" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="클릭" field="clicks" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="CTR" field="ctr" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="순위" field="avg_position" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+          </tr>
+        </thead>
         <tbody>
-          {keywords.slice(0,100).map((k,i) => (
+          {sortData(keywords).slice(0,100).map((k,i) => (
             <tr key={i} style={{borderBottom:'1px solid #eee'}}>
               <td style={tdStyle}>{k.query}</td>
               <td style={tdStyle}>
@@ -244,7 +237,6 @@ function RewriteQueue() {
   const [days, setDays] = useState(30)
   const { sortField, sortDir, onSort, sortData } = useSort('priority')
 
-
   useEffect(() => {
     api.get('/gsc/keywords?days=' + days + '&limit=500').then(r => {
       const data = r.data.map(k => ({...k, value: classifyKw(k.query)}))
@@ -255,7 +247,6 @@ function RewriteQueue() {
         const imp = k.impressions
         let action = null
         let priority = 0
-
         if (pos <= 10 && ctr < 5 && imp >= 5) {
           action = '타이틀/메타 개선'
           priority = imp * (10 - ctr)
@@ -266,10 +257,7 @@ function RewriteQueue() {
           action = '타이틀 전면 교체'
           priority = imp * 5
         }
-
-        if (action) {
-          queue.push({...k, action, priority})
-        }
+        if (action) queue.push({...k, action, priority})
       }
       queue.sort((a,b) => b.priority - a.priority)
       setKeywords(queue)
@@ -290,16 +278,14 @@ function RewriteQueue() {
           </button>
         ))}
       </div>
-
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
         <StatCard label="타이틀/메타 개선" value={titleFixes.length} color="#ef4444" />
         <StatCard label="콘텐츠 보강" value={contentFixes.length} color="#f59e0b" />
         <StatCard label="타이틀 전면 교체" value={zeroClicks.length} color="#8b5cf6" />
       </div>
-
       {keywords.length > 0 && (
         <table style={tableStyle}>
-                    <thead>
+          <thead>
             <tr style={{background:'#f8fafc'}}>
               <SortHeader label="키워드" field="query" sortField={sortField} sortDir={sortDir} onSort={onSort} />
               <SortHeader label="액션" field="action" sortField={sortField} sortDir={sortDir} onSort={onSort} />
@@ -309,9 +295,8 @@ function RewriteQueue() {
               <SortHeader label="순위" field="avg_position" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
             </tr>
           </thead>
-
           <tbody>
-            {keywords.slice(0,50).map((k,i) => {
+            {sortData(keywords).slice(0,50).map((k,i) => {
               const actionColor = k.action.includes('메타') ? '#ef4444' : k.action.includes('보강') ? '#f59e0b' : '#8b5cf6'
               return (
                 <tr key={i} style={{borderBottom:'1px solid #eee'}}>
@@ -341,6 +326,9 @@ function TitleManager() {
   const [saved, setSaved] = useState(false)
   const [search, setSearch] = useState('')
   const [results, setResults] = useState([])
+  const [bulk, setBulk] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const [csvLog, setCsvLog] = useState('')
 
   const addTitle = () => {
     if (!input.trim()) return
@@ -360,6 +348,67 @@ function TitleManager() {
     } catch (e) { alert('저장 실패: ' + e.message) }
   }
 
+  const addBulk = () => {
+    if (!bulk.trim()) return
+    const lines = bulk.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+    const newTitles = lines.map(l => ({ title: l, url: '', source: 'bulk' }))
+    setTitles([...titles, ...newTitles])
+    setBulk('')
+    setSaved(false)
+  }
+
+  const handleCsvFile = async (file) => {
+    if (!file) return
+    setCsvLog('파싱 중...')
+    const text = await file.text()
+    const lines = text.split('\n')
+    const parsed = []
+    const skip = ['카테고리', '태그 목록', '전체보기']
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!line) continue
+      const cols = line.split(',')
+      let title = ''
+      let url = ''
+      if (cols.length >= 2) {
+        title = cols[1]?.replace(/^"|"$/g, '').trim()
+        url = cols[2]?.replace(/^"|"$/g, '').trim() || ''
+      } else {
+        title = cols[0]?.replace(/^"|"$/g, '').trim()
+      }
+      if (!title) continue
+      if (skip.some(s => title.includes(s))) continue
+      parsed.push({ title, url, source: file.name.replace('.csv', '') })
+    }
+    if (parsed.length === 0) {
+      setCsvLog('파싱 결과 0건. CSV 형식을 확인하세요.')
+      return
+    }
+    setCsvLog(parsed.length + '건 파싱 완료. 업로드 중...')
+    try {
+      for (let i = 0; i < parsed.length; i += 500) {
+        const batch = parsed.slice(i, i + 500)
+        await api.post('/titles', { titles: batch })
+      }
+      setCsvLog(file.name + ' → ' + parsed.length + '건 저장 완료!')
+    } catch (e) {
+      setCsvLog('업로드 실패: ' + e.message)
+    }
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    setDragOver(false)
+    const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.csv'))
+    if (files.length === 0) { setCsvLog('CSV 파일만 가능합니다.'); return }
+    files.forEach(f => handleCsvFile(f))
+  }
+
+  const handleFileInput = (e) => {
+    const files = Array.from(e.target.files)
+    files.forEach(f => handleCsvFile(f))
+  }
+
   const searchTitles = async () => {
     if (!search.trim()) return
     try {
@@ -370,7 +419,38 @@ function TitleManager() {
 
   return (
     <div>
-      <h3 style={{marginBottom:12}}>타이틀 입력</h3>
+      <h3 style={{marginBottom:16}}>CSV 대량 등록</h3>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        style={{
+          border: dragOver ? '2px solid #3b82f6' : '2px dashed #d1d5db',
+          borderRadius: 12, padding: 32, textAlign: 'center',
+          background: dragOver ? '#eff6ff' : '#fafafa',
+          marginBottom: 12, cursor: 'pointer', transition: 'all 0.2s'
+        }}
+        onClick={() => document.getElementById('csvInput').click()}
+      >
+        <div style={{fontSize:32,marginBottom:8}}>📄</div>
+        <div style={{fontSize:14,color:'#6b7280'}}>CSV 파일을 드래그하거나 클릭하여 선택</div>
+        <div style={{fontSize:12,color:'#9ca3af',marginTop:4}}>여러 파일 동시 가능</div>
+        <input id="csvInput" type="file" accept=".csv" multiple
+          style={{display:'none'}} onChange={handleFileInput} />
+      </div>
+      {csvLog && <p style={{color: csvLog.includes('실패') ? '#ef4444' : '#10b981', fontSize:13, marginBottom:16}}>{csvLog}</p>}
+
+      <h3 style={{marginBottom:12}}>여러 줄 입력</h3>
+      <textarea value={bulk} onChange={e => setBulk(e.target.value)}
+        placeholder={'타이틀을 한 줄에 하나씩 입력\n예:\n전기차 보조금 2026 총정리\n삼성생명 실손보험 청구 방법'}
+        style={{width:'100%',minHeight:100,padding:10,fontSize:14,borderRadius:8,border:'1px solid #d1d5db',resize:'vertical',fontFamily:'inherit',boxSizing:'border-box'}} />
+      <div style={{display:'flex',gap:8,marginTop:8,marginBottom:20}}>
+        <button onClick={addBulk} style={btnStyle}>
+          목록에 추가 ({bulk.split('\n').filter(l=>l.trim()).length}건)
+        </button>
+      </div>
+
+      <h3 style={{marginBottom:12}}>단건 입력</h3>
       <div style={{display:'flex',gap:8,marginBottom:12}}>
         <input value={input} onChange={e=>setInput(e.target.value)}
           onKeyDown={e=>e.key==='Enter'&&addTitle()}
@@ -378,22 +458,28 @@ function TitleManager() {
           style={inputStyle} />
         <button onClick={addTitle} style={btnStyle}>추가</button>
       </div>
+
       {titles.length > 0 && (
-        <div style={{marginBottom:12}}>
-          {titles.map((t,i) => (
-            <div key={i} style={{display:'flex',justifyContent:'space-between',padding:8,background:'#f5f5f5',borderRadius:6,marginBottom:4}}>
-              <span>{t.title}</span>
-              <button onClick={()=>removeTitle(i)} style={{color:'red',border:'none',background:'none',cursor:'pointer'}}>X</button>
-            </div>
-          ))}
-          <button onClick={saveTitles} style={{...btnStyle,background:'#10b981',marginTop:8}}>
-            {titles.length}개 저장
-          </button>
+        <div style={{marginBottom:20,padding:12,background:'#f8fafc',borderRadius:8}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+            <span style={{fontWeight:600}}>대기 목록 ({titles.length}건)</span>
+            <button onClick={saveTitles} style={{...btnStyle,background:'#10b981',padding:'6px 16px',fontSize:13}}>
+              전체 저장
+            </button>
+          </div>
+          <div style={{maxHeight:200,overflowY:'auto'}}>
+            {titles.map((t,i) => (
+              <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'6px 8px',background:'#fff',borderRadius:6,marginBottom:2,fontSize:13}}>
+                <span>{t.title}</span>
+                <button onClick={()=>removeTitle(i)} style={{color:'#ef4444',border:'none',background:'none',cursor:'pointer',fontSize:12}}>✕</button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
-      {saved && <p style={{color:'#10b981'}}>저장 완료!</p>}
+      {saved && <p style={{color:'#10b981',marginBottom:16}}>저장 완료!</p>}
 
-      <h3 style={{marginTop:24,marginBottom:12}}>타이틀 검색</h3>
+      <h3 style={{marginTop:8,marginBottom:12}}>타이틀 검색</h3>
       <div style={{display:'flex',gap:8}}>
         <input value={search} onChange={e=>setSearch(e.target.value)}
           onKeyDown={e=>e.key==='Enter'&&searchTitles()}
@@ -441,7 +527,7 @@ function KeywordCheck() {
         </div>
       )}
       {results.length > 0 && (
-        <>
+        <div>
           <div style={{padding:12,background:'#fef3c7',borderRadius:8,color:'#92400e',marginBottom:12,fontWeight:600}}>
             '{keyword}' 관련 글 {results.length}건 발견
           </div>
@@ -457,17 +543,8 @@ function KeywordCheck() {
               </tr>
             ))}</tbody>
           </table>
-        </>
+        </div>
       )}
-    </div>
-  )
-}
-
-function StatCard({ label, value, color }) {
-  return (
-    <div style={{padding:16,background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',boxShadow:'0 1px 3px rgba(0,0,0,0.05)'}}>
-      <div style={{fontSize:13,color:'#6b7280',marginBottom:4}}>{label}</div>
-      <div style={{fontSize:28,fontWeight:700,color:color||'#111'}}>{value}</div>
     </div>
   )
 }
@@ -505,3 +582,4 @@ function App() {
 }
 
 export default App
+
