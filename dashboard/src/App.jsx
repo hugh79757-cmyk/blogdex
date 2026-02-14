@@ -321,226 +321,308 @@ function RewriteQueue() {
 }
 
 function TitleManager() {
+  const [tab, setTab] = useState('browse')
   const [input, setInput] = useState('')
   const [titles, setTitles] = useState([])
-  const [saved, setSaved] = useState(false)
-  const [search, setSearch] = useState('')
-  const [results, setResults] = useState([])
   const [bulk, setBulk] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [csvLog, setCsvLog] = useState([])
   const [analyzing, setAnalyzing] = useState(false)
   const [recommendations, setRecommendations] = useState([])
   const [detail, setDetail] = useState(null)
-  const [detailLoading, setDetailLoading] = useState(false)
 
-  const addTitle = () => { if (input.trim()) { setTitles([...titles, input.trim()]); setInput(''); setSaved(false) } }
-  const removeTitle = (i) => { setTitles(titles.filter((_, idx) => idx !== i)) }
+  // browse state
+  const [filter, setFilter] = useState('all')
+  const [browseData, setBrowseData] = useState([])
+  const [browseTotal, setBrowseTotal] = useState(0)
+  const [browsePage, setBrowsePage] = useState(1)
+  const [selected, setSelected] = useState(new Set())
+  const [selectAll, setSelectAll] = useState(false)
 
+  // search state
+  const [search, setSearch] = useState('')
+  const [results, setResults] = useState([])
+
+  const loadBrowse = async (status, page) => {
+    try {
+      const res = await api.get('/titles/filter?status=' + status + '&page=' + page + '&limit=30')
+      setBrowseData(res.data.data || [])
+      setBrowseTotal(res.data.total || 0)
+      setSelected(new Set())
+      setSelectAll(false)
+    } catch(e) { console.error(e) }
+  }
+
+  useEffect(() => { if (tab === 'browse') loadBrowse(filter, browsePage) }, [tab, filter, browsePage])
+
+  const toggleSelect = (id) => {
+    const s = new Set(selected)
+    if (s.has(id)) s.delete(id); else s.add(id)
+    setSelected(s)
+  }
+  const toggleAll = () => {
+    if (selectAll) { setSelected(new Set()); setSelectAll(false) }
+    else { setSelected(new Set(browseData.map(t => t.id))); setSelectAll(true) }
+  }
+  const bulkStatus = async (status) => {
+    if (selected.size === 0) return
+    try {
+      await api.put('/titles/bulk-status', { ids: Array.from(selected), status })
+      loadBrowse(filter, browsePage)
+    } catch(e) { alert('실패: ' + e.message) }
+  }
+
+  const addTitle = () => { if (input.trim()) { setTitles([...titles, input.trim()]); setInput('') } }
+  const removeTitle = (i) => setTitles(titles.filter((_, idx) => idx !== i))
   const saveTitles = async () => {
     if (titles.length === 0) return
     try {
       await api.post('/titles', { titles: titles.map(t => ({ title: t })) })
-      setSaved(true)
       setCsvLog(prev => [...prev, titles.length + '건 저장 완료'])
       setTitles([])
-    } catch (e) { alert('저장 실패: ' + e.message) }
+    } catch(e) { alert('저장 실패') }
   }
-
   const addBulk = () => {
     const lines = bulk.split('\n').map(l => l.trim()).filter(l => l.length > 0)
-    if (lines.length > 0) { setTitles([...titles, ...lines]); setBulk(''); setCsvLog(prev => [...prev, lines.length + '건 추가됨']) }
+    if (lines.length > 0) { setTitles([...titles, ...lines]); setBulk(''); setCsvLog(prev => [...prev, lines.length + '건 추가']) }
   }
-
   const handleCsvFile = async (file) => {
     const text = await file.text()
     const lines = text.split('\n')
-    const skipPatterns = ['카테고리', '태그 목록', '전체보기', 'category', 'title,']
+    const skip = ['카테고리','태그 목록','전체보기','category','title,']
     const parsed = []
     for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      if (skipPatterns.some(p => trimmed.toLowerCase().includes(p.toLowerCase()))) continue
-      const cols = trimmed.split(',')
-      const title = (cols[0] || '').replace(/^"|"$/g, '').trim()
+      const tr = line.trim()
+      if (!tr) continue
+      if (skip.some(p => tr.toLowerCase().includes(p.toLowerCase()))) continue
+      const title = (tr.split(',')[0] || '').replace(/^"|"$/g, '').trim()
       if (title.length >= 2) parsed.push(title)
     }
     setCsvLog(prev => [...prev, file.name + ': ' + parsed.length + '건 파싱'])
     if (parsed.length === 0) return
-
-    // 배치 저장
     for (let i = 0; i < parsed.length; i += 500) {
       const batch = parsed.slice(i, i + 500)
       try {
         await api.post('/titles', { titles: batch.map(t => ({ title: t })) })
-        setCsvLog(prev => [...prev, (i + batch.length) + '/' + parsed.length + ' 업로드 완료'])
-      } catch (e) { setCsvLog(prev => [...prev, 'ERROR: ' + e.message]) }
+        setCsvLog(prev => [...prev, (i + batch.length) + '/' + parsed.length + ' 업로드'])
+      } catch(e) { setCsvLog(prev => [...prev, 'ERROR: ' + e.message]) }
     }
-
-    // 자동 분석
     setCsvLog(prev => [...prev, '블로그 추천 분석 시작...'])
     setAnalyzing(true)
     try {
-      const batchSize = 20
       const allRecs = []
-      for (let i = 0; i < parsed.length; i += batchSize) {
-        const batch = parsed.slice(i, i + batchSize)
-        const res = await api.post('/titles/recommend', { titles: batch })
+      for (let i = 0; i < parsed.length; i += 20) {
+        const res = await api.post('/titles/recommend', { titles: parsed.slice(i, i + 20) })
         allRecs.push(...res.data)
       }
       setRecommendations(allRecs)
       setCsvLog(prev => [...prev, allRecs.length + '건 분석 완료'])
-    } catch (e) { setCsvLog(prev => [...prev, '분석 실패: ' + e.message]) }
+    } catch(e) { setCsvLog(prev => [...prev, '분석 실패: ' + e.message]) }
     setAnalyzing(false)
   }
-
   const handleDrop = (e) => { e.preventDefault(); setDragOver(false); Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.csv')).forEach(handleCsvFile) }
   const handleFileInput = (e) => { Array.from(e.target.files).filter(f => f.name.endsWith('.csv')).forEach(handleCsvFile) }
-
   const searchTitles = async () => {
     if (!search.trim()) return
-    try {
-      const res = await api.get('/titles/search?q=' + encodeURIComponent(search))
-      setResults(res.data)
-    } catch (e) { alert('검색 실패') }
+    try { const res = await api.get('/titles/search?q=' + encodeURIComponent(search)); setResults(res.data) } catch(e) { alert('검색 실패') }
+  }
+  const showDetail = async (id) => {
+    try { const res = await api.get('/titles/detail/' + id); setDetail(res.data) } catch(e) { alert('상세 조회 실패') }
   }
 
-  const showDetail = async (titleId) => {
-    setDetailLoading(true)
-    try {
-      const res = await api.get('/titles/detail/' + titleId)
-      setDetail(res.data)
-    } catch (e) { alert('상세 조회 실패') }
-    setDetailLoading(false)
-  }
-
-  const closeDetail = () => setDetail(null)
-
-  const recColor = (score) => score > 50 ? '#10b981' : score > 10 ? '#f59e0b' : '#6b7280'
+  const statusColor = { saved: '#10b981', rejected: '#ef4444', pending: '#f59e0b', used: '#3b82f6' }
+  const statusLabel = { saved: '저장됨', rejected: '제외', pending: '대기', used: '사용됨' }
+  const recColor = (s) => s > 50 ? '#10b981' : s > 10 ? '#f59e0b' : '#6b7280'
 
   return (
     <div>
-      {/* CSV 드래그앤드롭 */}
-      <div onDrop={handleDrop} onDragOver={e => { e.preventDefault(); setDragOver(true) }} onDragLeave={() => setDragOver(false)}
-        style={{border: dragOver ? '2px solid #3b82f6' : '2px dashed #d1d5db', borderRadius:12, padding:32, textAlign:'center', marginBottom:16, background: dragOver ? '#eff6ff' : '#fafafa', cursor:'pointer'}}
-        onClick={() => document.getElementById('csvInput').click()}>
-        <div style={{fontSize:14,color:'#6b7280'}}>CSV 파일을 여기에 드래그하거나 클릭하세요</div>
-        <div style={{fontSize:12,color:'#9ca3af',marginTop:4}}>업로드 후 자동으로 최적 블로그 추천 분석이 실행됩니다</div>
-        <input id="csvInput" type="file" accept=".csv" multiple style={{display:'none'}} onChange={handleFileInput} />
+      {/* 서브탭 */}
+      <div style={{display:'flex',gap:4,marginBottom:16}}>
+        {[{k:'browse',l:'타이틀 목록'},{k:'add',l:'등록/CSV'},{k:'search',l:'검색'}].map(t => (
+          <button key={t.k} onClick={() => setTab(t.k)}
+            style={{padding:'6px 14px',borderRadius:6,border:'none',fontSize:13,cursor:'pointer',
+              background: tab===t.k ? '#3b82f6' : '#f3f4f6', color: tab===t.k ? '#fff' : '#374151'}}>{t.l}</button>
+        ))}
       </div>
 
-      {/* CSV 로그 */}
-      {csvLog.length > 0 && (
-        <div style={{background:'#f8fafc',border:'1px solid #e5e7eb',borderRadius:8,padding:12,marginBottom:16,maxHeight:120,overflowY:'auto'}}>
-          {csvLog.map((log, i) => <div key={i} style={{fontSize:12,color: log.includes('ERROR') ? '#ef4444' : '#374151'}}>{log}</div>)}
-        </div>
-      )}
-
-      {/* 분석 결과 */}
-      {analyzing && <p style={{color:'#3b82f6',marginBottom:12}}>분석 중...</p>}
-      {recommendations.length > 0 && (
-        <div style={{marginBottom:24}}>
-          <h3 style={{marginBottom:8}}>블로그 추천 결과 ({recommendations.length}건)</h3>
-          <table style={tableStyle}>
-            <thead><tr style={{background:'#f8fafc'}}>
-              <th style={thStyle}>타이틀</th>
-              <th style={{...thStyle,textAlign:'center'}}>추천 블로그</th>
-              <th style={{...thStyle,textAlign:'right'}}>점수</th>
-              <th style={{...thStyle,textAlign:'right'}}>노출</th>
-              <th style={{...thStyle,textAlign:'center'}}>중복</th>
-              <th style={thStyle}>근거</th>
-            </tr></thead>
-            <tbody>{recommendations.map((r, i) => (
-              <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
-                <td style={{...tdStyle,maxWidth:250,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.title}</td>
-                <td style={{...tdStyle,textAlign:'center',fontWeight:600,color: recColor(r.score)}}>{r.recommendation || '-'}</td>
-                <td style={{...tdStyle,textAlign:'right'}}>{r.score || 0}</td>
-                <td style={{...tdStyle,textAlign:'right'}}>{r.impressions || 0}</td>
-                <td style={{...tdStyle,textAlign:'center'}}>{r.dup_count || 0}</td>
-                <td style={{...tdStyle,fontSize:11,color:'#6b7280'}}>{(r.reasons || []).join(', ') || '-'}</td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      )}
-
-      {/* 대량 입력 */}
-      <div style={{marginBottom:16}}>
-        <textarea value={bulk} onChange={e => setBulk(e.target.value)} placeholder="여러 타이틀을 줄바꿈으로 입력" rows={4}
-          style={{...inputStyle,width:'100%',resize:'vertical'}} />
-        <button onClick={addBulk} style={{...btnStyle,marginTop:4}}>대량 추가</button>
-      </div>
-
-      {/* 단일 입력 */}
-      <div style={{display:'flex',gap:8,marginBottom:16}}>
-        <input value={input} onChange={e => setInput(e.target.value)} placeholder="타이틀 입력"
-          onKeyDown={e => e.key === 'Enter' && addTitle()} style={{...inputStyle,flex:1}} />
-        <button onClick={addTitle} style={btnStyle}>추가</button>
-      </div>
-
-      {/* 대기열 */}
-      {titles.length > 0 && (
-        <div style={{marginBottom:16}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-            <span style={{fontSize:13,color:'#6b7280'}}>대기: {titles.length}건</span>
-            <button onClick={saveTitles} style={{...btnStyle,background:'#10b981'}}>전체 저장</button>
+      {/* === 타이틀 목록 탭 === */}
+      {tab === 'browse' && (
+        <div>
+          <div style={{display:'flex',gap:4,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+            {['all','pending','saved','rejected','used'].map(s => (
+              <button key={s} onClick={() => { setFilter(s); setBrowsePage(1) }}
+                style={{padding:'5px 12px',borderRadius:6,border:'none',fontSize:12,cursor:'pointer',
+                  background: filter===s ? '#3b82f6' : '#f3f4f6', color: filter===s ? '#fff' : '#374151'}}>
+                {s === 'all' ? '전체' : (statusLabel[s] || s)}
+              </button>
+            ))}
+            <span style={{marginLeft:'auto',fontSize:12,color:'#6b7280'}}>총 {browseTotal}건</span>
           </div>
-          {titles.map((t, i) => (
-            <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid #f3f4f6',fontSize:13}}>
-              <span>{t}</span>
-              <button onClick={() => removeTitle(i)} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer'}}>x</button>
-            </div>
-          ))}
-        </div>
-      )}
-      {saved && <div style={{color:'#10b981',fontSize:13,marginBottom:12}}>저장 완료</div>}
 
-      {/* 검색 */}
-      <div style={{borderTop:'1px solid #e5e7eb',paddingTop:16,marginTop:16}}>
-        <h3 style={{marginBottom:8}}>타이틀 검색</h3>
-        <div style={{display:'flex',gap:8,marginBottom:12}}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="키워드 검색"
-            onKeyDown={e => e.key === 'Enter' && searchTitles()} style={{...inputStyle,flex:1}} />
-          <button onClick={searchTitles} style={btnStyle}>검색</button>
-        </div>
-        {results.length > 0 && (
+          {selected.size > 0 && (
+            <div style={{display:'flex',gap:6,marginBottom:12,padding:8,background:'#f0f9ff',borderRadius:8}}>
+              <span style={{fontSize:12,color:'#374151',lineHeight:'28px'}}>{selected.size}건 선택</span>
+              <button onClick={() => bulkStatus('saved')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#10b981',color:'#fff',fontSize:12,cursor:'pointer'}}>저장</button>
+              <button onClick={() => bulkStatus('rejected')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#ef4444',color:'#fff',fontSize:12,cursor:'pointer'}}>제외</button>
+              <button onClick={() => bulkStatus('used')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#3b82f6',color:'#fff',fontSize:12,cursor:'pointer'}}>사용됨</button>
+              <button onClick={() => bulkStatus('pending')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#f59e0b',color:'#fff',fontSize:12,cursor:'pointer'}}>대기로</button>
+            </div>
+          )}
+
           <table style={tableStyle}>
             <thead><tr style={{background:'#f8fafc'}}>
+              <th style={{...thStyle,width:30}}><input type="checkbox" checked={selectAll} onChange={toggleAll}/></th>
               <th style={thStyle}>타이틀</th>
-              <th style={{...thStyle,textAlign:'center'}}>발행 블로그</th>
-              <th style={{...thStyle,textAlign:'center'}}>상태</th>
-              <th style={{...thStyle,textAlign:'center'}}>상세</th>
+              <th style={{...thStyle,textAlign:'center',width:90}}>발행 블로그</th>
+              <th style={{...thStyle,textAlign:'center',width:60}}>상태</th>
             </tr></thead>
-            <tbody>{results.map((r, i) => (
-              <tr key={i} style={{borderBottom:'1px solid #f3f4f6',cursor:'pointer'}} onClick={() => showDetail(r.id)}>
-                <td style={tdStyle}>{r.title}</td>
-                <td style={{...tdStyle,textAlign:'center'}}>
-                  {r.published_in && r.published_in.length > 0
-                    ? r.published_in.map((p, j) => <div key={j} style={{fontSize:11}}><span style={{color:'#10b981',fontWeight:600}}>{p.blog_name}</span> <span style={{color:'#9ca3af'}}>({p.platform})</span></div>)
-                    : <span style={{color:'#d1d5db',fontSize:12}}>미발행</span>}
+            <tbody>{browseData.map(t => (
+              <tr key={t.id} style={{borderBottom:'1px solid #f3f4f6',cursor:'pointer'}} onClick={() => showDetail(t.id)}>
+                <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleSelect(t.id)}/></td>
+                <td style={{...tdStyle,maxWidth:350,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.title}</td>
+                <td style={{...tdStyle,textAlign:'center',fontSize:11}}>
+                  {t.published_in && t.published_in.length > 0
+                    ? t.published_in.map((p,j) => <div key={j} style={{color:'#10b981'}}>{p.blog_name}</div>)
+                    : <span style={{color:'#d1d5db'}}>-</span>}
                 </td>
-                <td style={{...tdStyle,textAlign:'center'}}>{r.status || 'pending'}</td>
-                <td style={{...tdStyle,textAlign:'center',color:'#3b82f6'}}>보기</td>
+                <td style={{...tdStyle,textAlign:'center'}}>
+                  <span style={{fontSize:11,padding:'2px 8px',borderRadius:10,background:(statusColor[t.status]||'#e5e7eb')+'20',color:statusColor[t.status]||'#6b7280'}}>
+                    {statusLabel[t.status] || t.status || 'pending'}
+                  </span>
+                </td>
               </tr>
             ))}</tbody>
           </table>
-        )}
-      </div>
+
+          {browseTotal > 30 && (
+            <div style={{display:'flex',justifyContent:'center',gap:8,marginTop:12}}>
+              <button disabled={browsePage<=1} onClick={() => setBrowsePage(browsePage-1)} style={{...btnStyle,opacity:browsePage<=1?0.3:1}}>이전</button>
+              <span style={{fontSize:12,lineHeight:'32px',color:'#6b7280'}}>{browsePage} / {Math.ceil(browseTotal/30)}</span>
+              <button disabled={browsePage>=Math.ceil(browseTotal/30)} onClick={() => setBrowsePage(browsePage+1)} style={{...btnStyle,opacity:browsePage>=Math.ceil(browseTotal/30)?0.3:1}}>다음</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === 등록/CSV 탭 === */}
+      {tab === 'add' && (
+        <div>
+          <div onDrop={handleDrop} onDragOver={e=>{e.preventDefault();setDragOver(true)}} onDragLeave={()=>setDragOver(false)}
+            style={{border:dragOver?'2px solid #3b82f6':'2px dashed #d1d5db',borderRadius:12,padding:32,textAlign:'center',marginBottom:16,background:dragOver?'#eff6ff':'#fafafa',cursor:'pointer'}}
+            onClick={()=>document.getElementById('csvInput').click()}>
+            <div style={{fontSize:14,color:'#6b7280'}}>CSV 파일을 여기에 드래그하거나 클릭</div>
+            <div style={{fontSize:12,color:'#9ca3af',marginTop:4}}>업로드 후 자동 블로그 추천 분석</div>
+            <input id="csvInput" type="file" accept=".csv" multiple style={{display:'none'}} onChange={handleFileInput}/>
+          </div>
+
+          {csvLog.length > 0 && (
+            <div style={{background:'#f8fafc',border:'1px solid #e5e7eb',borderRadius:8,padding:12,marginBottom:16,maxHeight:120,overflowY:'auto'}}>
+              {csvLog.map((l,i) => <div key={i} style={{fontSize:12,color:l.includes('ERROR')?'#ef4444':'#374151'}}>{l}</div>)}
+            </div>
+          )}
+
+          {analyzing && <p style={{color:'#3b82f6',marginBottom:12}}>분석 중...</p>}
+          {recommendations.length > 0 && (
+            <div style={{marginBottom:24}}>
+              <h3 style={{marginBottom:8}}>블로그 추천 결과 ({recommendations.length}건)</h3>
+              <table style={tableStyle}>
+                <thead><tr style={{background:'#f8fafc'}}>
+                  <th style={thStyle}>타이틀</th>
+                  <th style={{...thStyle,textAlign:'center'}}>추천 블로그</th>
+                  <th style={{...thStyle,textAlign:'right'}}>점수</th>
+                  <th style={{...thStyle,textAlign:'right'}}>노출</th>
+                  <th style={{...thStyle,textAlign:'center'}}>중복</th>
+                  <th style={thStyle}>근거</th>
+                </tr></thead>
+                <tbody>{recommendations.map((r,i) => (
+                  <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
+                    <td style={{...tdStyle,maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.title}</td>
+                    <td style={{...tdStyle,textAlign:'center',fontWeight:600,color:recColor(r.score)}}>{r.recommendation||'-'}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{r.score||0}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{r.impressions||0}</td>
+                    <td style={{...tdStyle,textAlign:'center'}}>{r.dup_count||0}</td>
+                    <td style={{...tdStyle,fontSize:11,color:'#6b7280'}}>{(r.reasons||[]).join(', ')||'-'}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+
+          <div style={{marginBottom:16}}>
+            <textarea value={bulk} onChange={e=>setBulk(e.target.value)} placeholder="여러 타이틀을 줄바꿈으로 입력" rows={4} style={{...inputStyle,width:'100%',resize:'vertical'}}/>
+            <button onClick={addBulk} style={{...btnStyle,marginTop:4}}>대량 추가</button>
+          </div>
+
+          <div style={{display:'flex',gap:8,marginBottom:16}}>
+            <input value={input} onChange={e=>setInput(e.target.value)} placeholder="타이틀 입력" onKeyDown={e=>e.key==='Enter'&&addTitle()} style={{...inputStyle,flex:1}}/>
+            <button onClick={addTitle} style={btnStyle}>추가</button>
+          </div>
+
+          {titles.length > 0 && (
+            <div style={{marginBottom:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                <span style={{fontSize:13,color:'#6b7280'}}>대기: {titles.length}건</span>
+                <button onClick={saveTitles} style={{...btnStyle,background:'#10b981'}}>전체 저장</button>
+              </div>
+              {titles.map((t,i) => (
+                <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid #f3f4f6',fontSize:13}}>
+                  <span>{t}</span>
+                  <button onClick={()=>removeTitle(i)} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer'}}>x</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === 검색 탭 === */}
+      {tab === 'search' && (
+        <div>
+          <div style={{display:'flex',gap:8,marginBottom:12}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="키워드 검색" onKeyDown={e=>e.key==='Enter'&&searchTitles()} style={{...inputStyle,flex:1}}/>
+            <button onClick={searchTitles} style={btnStyle}>검색</button>
+          </div>
+          {results.length > 0 && (
+            <table style={tableStyle}>
+              <thead><tr style={{background:'#f8fafc'}}>
+                <th style={thStyle}>타이틀</th>
+                <th style={{...thStyle,textAlign:'center'}}>발행 블로그</th>
+                <th style={{...thStyle,textAlign:'center'}}>상태</th>
+                <th style={{...thStyle,textAlign:'center'}}>상세</th>
+              </tr></thead>
+              <tbody>{results.map((r,i) => (
+                <tr key={i} style={{borderBottom:'1px solid #f3f4f6',cursor:'pointer'}} onClick={()=>showDetail(r.id)}>
+                  <td style={tdStyle}>{r.title}</td>
+                  <td style={{...tdStyle,textAlign:'center',fontSize:11}}>
+                    {r.published_in && r.published_in.length > 0
+                      ? r.published_in.map((p,j) => <div key={j} style={{color:'#10b981'}}>{p.blog_name}</div>)
+                      : <span style={{color:'#d1d5db'}}>-</span>}
+                  </td>
+                  <td style={{...tdStyle,textAlign:'center'}}>
+                    <span style={{fontSize:11,padding:'2px 8px',borderRadius:10,background:(statusColor[r.status]||'#e5e7eb')+'20',color:statusColor[r.status]||'#6b7280'}}>
+                      {statusLabel[r.status]||r.status||'pending'}
+                    </span>
+                  </td>
+                  <td style={{...tdStyle,textAlign:'center',color:'#3b82f6'}}>보기</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {/* 상세 모달 */}
       {detail && (
-        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:999}}
-          onClick={closeDetail}>
-          <div style={{background:'#fff',borderRadius:16,padding:24,maxWidth:700,width:'90%',maxHeight:'80vh',overflowY:'auto'}} onClick={e => e.stopPropagation()}>
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:999}} onClick={()=>setDetail(null)}>
+          <div style={{background:'#fff',borderRadius:16,padding:24,maxWidth:700,width:'90%',maxHeight:'80vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:16}}>
-              <h3 style={{margin:0}}>{detail.title?.title || ''}</h3>
-              <button onClick={closeDetail} style={{background:'none',border:'none',fontSize:20,cursor:'pointer'}}>x</button>
+              <h3 style={{margin:0}}>{detail.title?.title||''}</h3>
+              <button onClick={()=>setDetail(null)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer'}}>x</button>
             </div>
-
             {detail.related_posts?.length > 0 && (
               <div style={{marginBottom:16}}>
                 <h4 style={{marginBottom:8,color:'#374151'}}>발행된 관련 글</h4>
-                {detail.related_posts.map((p, i) => (
+                {detail.related_posts.map((p,i) => (
                   <div key={i} style={{padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:13}}>
                     <div style={{fontWeight:600}}>{p.blog_name}</div>
                     <div>{p.title}</div>
@@ -550,32 +632,25 @@ function TitleManager() {
                 ))}
               </div>
             )}
-
             {detail.gsc_keywords?.length > 0 && (
               <div>
                 <h4 style={{marginBottom:8,color:'#374151'}}>GSC 키워드 성과</h4>
                 <table style={tableStyle}>
                   <thead><tr style={{background:'#f8fafc'}}>
-                    <th style={thStyle}>사이트</th>
-                    <th style={thStyle}>키워드</th>
-                    <th style={{...thStyle,textAlign:'right'}}>클릭</th>
-                    <th style={{...thStyle,textAlign:'right'}}>노출</th>
-                    <th style={{...thStyle,textAlign:'right'}}>순위</th>
+                    <th style={thStyle}>사이트</th><th style={thStyle}>키워드</th>
+                    <th style={{...thStyle,textAlign:'right'}}>클릭</th><th style={{...thStyle,textAlign:'right'}}>노출</th><th style={{...thStyle,textAlign:'right'}}>순위</th>
                   </tr></thead>
-                  <tbody>{detail.gsc_keywords.map((k, i) => (
+                  <tbody>{detail.gsc_keywords.map((k,i) => (
                     <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
-                      <td style={{...tdStyle,fontSize:12}}>{k.site}</td>
-                      <td style={tdStyle}>{k.query}</td>
-                      <td style={{...tdStyle,textAlign:'right'}}>{k.clicks}</td>
-                      <td style={{...tdStyle,textAlign:'right'}}>{k.impressions}</td>
+                      <td style={{...tdStyle,fontSize:12}}>{k.site}</td><td style={tdStyle}>{k.query}</td>
+                      <td style={{...tdStyle,textAlign:'right'}}>{k.clicks}</td><td style={{...tdStyle,textAlign:'right'}}>{k.impressions}</td>
                       <td style={{...tdStyle,textAlign:'right'}}>{k.avg_position?.toFixed(1)}</td>
                     </tr>
                   ))}</tbody>
                 </table>
               </div>
             )}
-
-            {(!detail.related_posts || detail.related_posts.length === 0) && (!detail.gsc_keywords || detail.gsc_keywords.length === 0) && (
+            {(!detail.related_posts||detail.related_posts.length===0)&&(!detail.gsc_keywords||detail.gsc_keywords.length===0) && (
               <p style={{color:'#9ca3af'}}>관련 데이터가 없습니다</p>
             )}
           </div>

@@ -327,6 +327,58 @@ export default {
         return json(results);
       }
 
+      // --- 타이틀 상태 일괄 업데이트 ---
+      if (path === "/titles/bulk-status" && method === "PUT") {
+        const body = await request.json();
+        const ids = body.ids || [];
+        const status = body.status || "saved";
+        if (ids.length === 0) return json({ updated: 0 });
+        let updated = 0;
+        for (const id of ids) {
+          await env.DB.prepare("UPDATE collected_titles SET status = ? WHERE id = ?").bind(status, id).run();
+          updated++;
+        }
+        return json({ updated });
+      }
+
+      // --- 타이틀 필터 조회 (status별) ---
+      if (path === "/titles/filter" && method === "GET") {
+        const status = url.searchParams.get("status") || "all";
+        const page = parseInt(url.searchParams.get("page") || "1");
+        const limit = parseInt(url.searchParams.get("limit") || "50");
+        const offset = (page - 1) * limit;
+        let rows, countRow;
+        if (status === "all") {
+          countRow = await env.DB.prepare("SELECT COUNT(*) as total FROM collected_titles").first();
+          const { results } = await env.DB.prepare("SELECT * FROM collected_titles ORDER BY id DESC LIMIT ? OFFSET ?").bind(limit, offset).all();
+          rows = results;
+        } else {
+          countRow = await env.DB.prepare("SELECT COUNT(*) as total FROM collected_titles WHERE status = ?").bind(status).first();
+          const { results } = await env.DB.prepare("SELECT * FROM collected_titles WHERE status = ? ORDER BY id DESC LIMIT ? OFFSET ?").bind(status, limit, offset).all();
+          rows = results;
+        }
+        // 발행 블로그 매칭
+        const enriched = [];
+        for (const t of rows) {
+          const words = t.title.split(/\s+/).filter(w => w.length >= 2).slice(0, 3);
+          let matchedBlogs = [];
+          for (const w of words) {
+            const { results: posts } = await env.DB.prepare(
+              "SELECT p.title, b.name as blog_name, b.platform FROM my_posts p JOIN blogs b ON p.blog_id = b.id WHERE p.title LIKE ? LIMIT 5"
+            ).bind('%' + w + '%').all();
+            matchedBlogs.push(...posts);
+          }
+          const seen = new Set();
+          const unique = matchedBlogs.filter(p => { const k = p.title; if(seen.has(k)) return false; seen.add(k); return true; });
+          const filtered = unique.filter(p => {
+            const matched = words.filter(w => p.title && p.title.includes(w)).length;
+            return matched >= 2;
+          }).slice(0, 2);
+          enriched.push({ ...t, published_in: filtered });
+        }
+        return json({ total: countRow?.total || 0, page, limit, data: enriched });
+      }
+
       // --- 타이틀 상세 (클릭시 정보) ---
       if (path.startsWith("/titles/detail/") && method === "GET") {
         const titleId = path.split("/titles/detail/")[1];
