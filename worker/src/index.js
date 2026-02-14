@@ -160,12 +160,12 @@ export default {
       if (path === "/gsc/keywords" && method === "POST") {
         const body = await request.json();
         const stmt = env.DB.prepare(
-          "INSERT OR REPLACE INTO gsc_keywords (site, date, query, clicks, impressions, ctr, position) VALUES (?, ?, ?, ?, ?, ?, ?)"
+          "INSERT OR REPLACE INTO gsc_keywords (site, date, query, page, clicks, impressions, ctr, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         );
         const items = body.data;
         for (let i = 0; i < items.length; i += 100) {
           const chunk = items.slice(i, i + 100);
-          const batch = chunk.map(d => stmt.bind(d.site, d.date, d.query, d.clicks || 0, d.impressions || 0, d.ctr || 0, d.position || 0));
+          const batch = chunk.map(d => stmt.bind(d.site, d.date, d.query, d.page || "", d.clicks || 0, d.impressions || 0, d.ctr || 0, d.position || 0));
           await env.DB.batch(batch);
         }
         return json({ inserted: items.length });
@@ -349,20 +349,36 @@ export default {
         return json({ updated });
       }
 
-      // --- 타이틀 필터 조회 (status별) ---
+      
+      // --- 출처 목록 ---
+      if (path === "/titles/sources" && method === "GET") {
+        const { results } = await env.DB.prepare("SELECT source, COUNT(*) as count FROM collected_titles GROUP BY source ORDER BY count DESC").all();
+        return json(results);
+      }
+
+// --- 타이틀 필터 조회 (status별) ---
       if (path === "/titles/filter" && method === "GET") {
         const status = url.searchParams.get("status") || "all";
         const page = parseInt(url.searchParams.get("page") || "1");
         const limit = parseInt(url.searchParams.get("limit") || "50");
         const offset = (page - 1) * limit;
         let rows, countRow;
-        if (status === "all") {
+        const source = url.searchParams.get("source") || "";
+        if (status === "all" && !source) {
           countRow = await env.DB.prepare("SELECT COUNT(*) as total FROM collected_titles").first();
           const { results } = await env.DB.prepare("SELECT * FROM collected_titles ORDER BY id DESC LIMIT ? OFFSET ?").bind(limit, offset).all();
           rows = results;
-        } else {
+        } else if (status === "all" && source) {
+          countRow = await env.DB.prepare("SELECT COUNT(*) as total FROM collected_titles WHERE source = ?").bind(source).first();
+          const { results } = await env.DB.prepare("SELECT * FROM collected_titles WHERE source = ? ORDER BY id DESC LIMIT ? OFFSET ?").bind(source, limit, offset).all();
+          rows = results;
+        } else if (status !== "all" && !source) {
           countRow = await env.DB.prepare("SELECT COUNT(*) as total FROM collected_titles WHERE status = ?").bind(status).first();
           const { results } = await env.DB.prepare("SELECT * FROM collected_titles WHERE status = ? ORDER BY id DESC LIMIT ? OFFSET ?").bind(status, limit, offset).all();
+          rows = results;
+        } else {
+          countRow = await env.DB.prepare("SELECT COUNT(*) as total FROM collected_titles WHERE status = ? AND source = ?").bind(status, source).first();
+          const { results } = await env.DB.prepare("SELECT * FROM collected_titles WHERE status = ? AND source = ? ORDER BY id DESC LIMIT ? OFFSET ?").bind(status, source, limit, offset).all();
           rows = results;
         }
         return json({ total: countRow?.total || 0, page, limit, data: rows });
@@ -372,7 +388,28 @@ export default {
       if (path.startsWith("/titles/detail/") && method === "GET") {
         const titleId = path.split("/titles/detail/")[1];
         const { results: titleRows } = await env.DB.prepare("SELECT * FROM collected_titles WHERE id = ?").bind(titleId).all();
-        if (titleRows.length === 0) return json({ error: "Not found" }, 404);
+        if (titleRows.length === 0) 
+    if (path === "/ga4/pageviews" && method === "POST") {
+      const body = await request.json();
+      const data = body.data || [];
+      if (data.length === 0) return json({ inserted: 0 });
+      const stmt = env.DB.prepare(
+        "INSERT OR REPLACE INTO ga4_pageviews (site, date, page, pageviews, sessions) VALUES (?, ?, ?, ?, ?)"
+      );
+      const chunks = [];
+      for (let i = 0; i < data.length; i += 50) {
+        chunks.push(data.slice(i, i + 50));
+      }
+      let total = 0;
+      for (const chunk of chunks) {
+        const batch = chunk.map(d => stmt.bind(d.site, d.date, d.page, d.pageviews || 0, d.sessions || 0));
+        await env.DB.batch(batch);
+        total += chunk.length;
+      }
+      return json({ inserted: total });
+    }
+
+    return json({ error: "Not found" }, 404);
         const title = titleRows[0];
         const stopWords = ['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','이','그','저','것','수','등','및','또','더','를','을','에','의','가','은','는','으로','에서','와','과','도','만','부터','까지','처럼','같은','한국','한국은','처음','처음이지','어서','어서와','텐트','밖은','유럽','맛집','레시피','만들기','방송','특집','편','일','월','년','집','곳','때','중','후','전','것','들','위','속','간'];
         const words = title.title.split(/\s+/).filter(w => w.length >= 2 && !stopWords.includes(w.toLowerCase())).slice(0, 6);
@@ -411,7 +448,28 @@ export default {
       }
 
 
-      return json({ error: "Not found" }, 404);
+      
+    if (path === "/ga4/pageviews" && method === "POST") {
+      const body = await request.json();
+      const data = body.data || [];
+      if (data.length === 0) return json({ inserted: 0 });
+      const stmt = env.DB.prepare(
+        "INSERT OR REPLACE INTO ga4_pageviews (site, date, page, pageviews, sessions) VALUES (?, ?, ?, ?, ?)"
+      );
+      const chunks = [];
+      for (let i = 0; i < data.length; i += 50) {
+        chunks.push(data.slice(i, i + 50));
+      }
+      let total = 0;
+      for (const chunk of chunks) {
+        const batch = chunk.map(d => stmt.bind(d.site, d.date, d.page, d.pageviews || 0, d.sessions || 0));
+        await env.DB.batch(batch);
+        total += chunk.length;
+      }
+      return json({ inserted: total });
+    }
+
+    return json({ error: "Not found" }, 404);
     } catch (e) {
       return json({ error: e.message }, 500);
     }

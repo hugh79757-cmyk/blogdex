@@ -348,6 +348,8 @@ function TitleManager() {
   const [browseTotal, setBrowseTotal] = useState(0)
   const [browsePage, setBrowsePage] = useState(1)
   const [selected, setSelected] = useState(new Set())
+  const [sources, setSources] = useState([])
+  const [sourceFilter, setSourceFilter] = useState('')
   const [selectAll, setSelectAll] = useState(false)
 
   // search state
@@ -356,7 +358,7 @@ function TitleManager() {
 
   const loadBrowse = async (status, page) => {
     try {
-      const res = await api.get('/titles/filter?status=' + status + '&page=' + page + '&limit=30')
+      const res = await api.get('/titles/filter?status=' + status + '&page=' + page + '&limit=30' + (sourceFilter ? '&source=' + encodeURIComponent(sourceFilter) : ''))
       setBrowseData(res.data.data || [])
       setBrowseTotal(res.data.total || 0)
       setSelected(new Set())
@@ -364,7 +366,8 @@ function TitleManager() {
     } catch(e) { console.error(e) }
   }
 
-  useEffect(() => { if (tab === 'browse') loadBrowse(filter, browsePage) }, [tab, filter, browsePage])
+  useEffect(() => { if (tab === 'browse') loadBrowse(filter, browsePage) }, [tab, filter, browsePage, sourceFilter])
+  useEffect(() => { api.get('/titles/sources').then(r => setSources(r.data || [])).catch(() => {}) }, [])
 
   const toggleSelect = (id) => {
     const s = new Set(selected)
@@ -457,7 +460,35 @@ function TitleManager() {
     try { const res = await api.get('/titles/search?q=' + encodeURIComponent(search)); setResults(res.data) } catch(e) { alert('검색 실패') }
   }
   const showDetail = async (id) => {
-    try { const res = await api.get('/titles/detail/' + id); setDetail(res.data) } catch(e) { alert('상세 조회 실패') }
+    // 먼저 타이틀 텍스트 가져오기
+    const titleItem = browseData.find(t => t.id === id) || results.find(t => t.id === id)
+    const titleText = titleItem?.title || ''
+    
+    // 로컬 API (Kiwi) 시도
+    try {
+      const localRes = await fetch('http://localhost:5001/api/title-detail', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ title: titleText })
+      })
+      if (localRes.ok) {
+        const localData = await localRes.json()
+        setDetail({
+          title: titleItem || { title: titleText },
+          keywords: localData.keywords,
+          related_posts: localData.related_posts,
+          gsc_keywords: localData.gsc_keywords,
+          summary: localData.summary
+        })
+        return
+      }
+    } catch(e) {}
+    
+    // 로컬 실패시 Workers API
+    try {
+      const res = await api.get('/titles/detail/' + id)
+      setDetail(res.data)
+    } catch(e) { alert('상세 조회 실패') }
   }
 
   const statusColor = { saved: '#10b981', rejected: '#ef4444', pending: '#f59e0b', used: '#3b82f6' }
@@ -488,6 +519,22 @@ function TitleManager() {
             ))}
             <span style={{marginLeft:'auto',fontSize:12,color:'#6b7280'}}>총 {browseTotal}건</span>
           </div>
+
+          {sources.length > 0 && (
+            <div style={{display:'flex',gap:4,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+              <span style={{fontSize:12,color:'#6b7280',marginRight:4}}>출처:</span>
+              <button onClick={() => { setSourceFilter(''); setBrowsePage(1) }}
+                style={{padding:'4px 10px',borderRadius:6,border:'none',fontSize:11,cursor:'pointer',
+                  background: !sourceFilter ? '#7c3aed' : '#f3f4f6', color: !sourceFilter ? '#fff' : '#374151'}}>전체</button>
+              {sources.filter(s => s.source).map(s => (
+                <button key={s.source} onClick={() => { setSourceFilter(s.source); setBrowsePage(1) }}
+                  style={{padding:'4px 10px',borderRadius:6,border:'none',fontSize:11,cursor:'pointer',
+                    background: sourceFilter === s.source ? '#7c3aed' : '#f3f4f6', color: sourceFilter === s.source ? '#fff' : '#374151'}}>
+                  {s.source} ({s.count})
+                </button>
+              ))}
+            </div>
+          )}
 
           {selected.size > 0 && (
             <div style={{display:'flex',gap:6,marginBottom:12,padding:8,background:'#f0f9ff',borderRadius:8}}>
@@ -535,6 +582,7 @@ function TitleManager() {
               <th style={{...thStyle,width:30}}><input type="checkbox" checked={selectAll} onChange={toggleAll}/></th>
               <th style={thStyle}>타이틀</th>
               <th style={{...thStyle,textAlign:'center',width:90}}>발행 블로그</th>
+              <th style={{...thStyle,width:100}}>출처</th>
               <th style={{...thStyle,textAlign:'center',width:60}}>상태</th>
             </tr></thead>
             <tbody>{browseData.map(t => (
@@ -546,6 +594,7 @@ function TitleManager() {
                     ? t.published_in.map((p,j) => <div key={j} style={{color:'#10b981'}}>{p.blog_name}</div>)
                     : <span style={{color:'#d1d5db'}}>-</span>}
                 </td>
+                <td style={{...tdStyle,fontSize:11,color:'#6b7280'}}>{t.source || '-'}</td>
                 <td style={{...tdStyle,textAlign:'center'}}>
                   <span style={{fontSize:11,padding:'2px 8px',borderRadius:10,background:(statusColor[t.status]||'#e5e7eb')+'20',color:statusColor[t.status]||'#6b7280'}}>
                     {statusLabel[t.status] || t.status || 'pending'}
@@ -695,6 +744,13 @@ function TitleManager() {
           <div style={{background:'#fff',borderRadius:16,padding:24,maxWidth:700,width:'90%',maxHeight:'80vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:16}}>
               <h3 style={{margin:0}}>{detail.title?.title||''}</h3>
+              {detail.keywords && detail.keywords.length > 0 && (
+                <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:8}}>
+                  {detail.keywords.map((kw,i) => (
+                    <span key={i} style={{padding:'2px 8px',borderRadius:10,fontSize:11,background:'#eff6ff',color:'#2563eb'}}>{kw}</span>
+                  ))}
+                </div>
+              )}
               <button onClick={()=>setDetail(null)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer'}}>x</button>
             </div>
             {detail.related_posts?.length > 0 && (

@@ -11,11 +11,45 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from flask import Flask, request, jsonify
+from kiwipiepy import Kiwi
+kiwi = Kiwi()
 from flask_cors import CORS
 import httpx
 import re
 import json
 from urllib.parse import urlparse, unquote
+
+
+
+STOP_NOUNS = {'것','수','등','때','곳','중','위','점','편','집','방','후','날','분','말','개','줄','번','가지','이유','방법','정리','총정리','완벽','가이드','추천','비교','후기','리뷰','만들기','하기','보기','알아보기','확인','안내','소개','설명','정보','내용','사용','이용','활용','경우','사람','사이트','블로그','포스팅','글','목록','리스트','TOP','top','가격','방송','특집'}
+
+def extract_keywords(title):
+    """Kiwi로 핵심 명사 추출"""
+    tokens = kiwi.tokenize(title)
+    nouns = []
+    for token in tokens:
+        if token.tag.startswith('NNG') or token.tag.startswith('NNP'):
+            if len(token.form) >= 2 and token.form not in STOP_NOUNS:
+                nouns.append(token.form)
+    # 복합명사 처리: 연속 명사는 합치기
+    compounds = []
+    i = 0
+    while i < len(tokens):
+        if tokens[i].tag.startswith('NN') and len(tokens[i].form) >= 2:
+            compound = tokens[i].form
+            j = i + 1
+            while j < len(tokens) and tokens[j].tag.startswith('NN') and tokens[j].start == tokens[j-1].start + len(tokens[j-1].form):
+                compound += tokens[j].form
+                j += 1
+            if len(compound) >= 3 and compound != tokens[i].form:
+                compounds.append(compound)
+            i = j
+        else:
+            i += 1
+    
+    all_keywords = list(dict.fromkeys(compounds + nouns))
+    return all_keywords[:8]
+
 
 app = Flask(__name__)
 CORS(app)
@@ -231,14 +265,14 @@ async def crawl_naver(blog_id, max_count):
     return results, total
 
 
-def save_to_d1(titles):
+def save_to_d1(titles, source=''):
     """크롤링 결과를 Workers D1에 저장"""
     import requests
     batch = [{'title': t['title'], 'url': t.get('url', '')} for t in titles]
     try:
         r = requests.post(
             f"{API_URL}/titles",
-            json={'titles': batch},
+            json={'titles': batch, 'source': source},
             headers={'X-API-Key': API_KEY, 'Content-Type': 'application/json'},
             timeout=30
         )
@@ -287,7 +321,7 @@ def crawl():
         # D1에 저장
         saved = False
         if results:
-            saved = save_to_d1(results)
+            saved = save_to_d1(results, source)
 
         return jsonify({
             'source': source,
@@ -304,6 +338,74 @@ def crawl():
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok', 'service': 'blogdex-local'})
+
+
+
+
+@app.route('/api/title-detail', methods=['POST'])
+def title_detail():
+    """Kiwi 기반 타이틀 상세 분석"""
+    import requests
+    data = request.json
+    title = data.get('title', '')
+    
+    if not title:
+        return jsonify({'error': '타이틀 필요'}), 400
+    
+    keywords = extract_keywords(title)
+    
+    # 내 블로그 포스트에서 관련글 찾기
+    try:
+        r = requests.get(
+            f"{API_URL}/posts/search",
+            params={'q': keywords[0] if keywords else title[:10]},
+            headers={'X-API-Key': API_KEY},
+            timeout=10
+        )
+        all_posts = r.json() if r.status_code == 200 else []
+    except:
+        all_posts = []
+    
+    # 키워드 2개 이상 매칭되는 것만
+    related = []
+    for p in all_posts:
+        pt = p.get('title', '')
+        match_count = sum(1 for kw in keywords if kw in pt)
+        if match_count >= 2:
+            related.append({**p, 'match_count': match_count, 'matched_keywords': [kw for kw in keywords if kw in pt]})
+    related.sort(key=lambda x: x['match_count'], reverse=True)
+    
+    # GSC 키워드 매칭
+    try:
+        r = requests.get(
+            f"{API_URL}/gsc/keywords",
+            params={'days': 90},
+            headers={'X-API-Key': API_KEY},
+            timeout=10
+        )
+        all_kw = r.json() if r.status_code == 200 else []
+    except:
+        all_kw = []
+    
+    matched_kw = []
+    for kw in all_kw:
+        query = kw.get('query', '')
+        match_count = sum(1 for k in keywords if k in query)
+        if match_count >= 1 and any(k in query for k in keywords[:3]):
+            matched_kw.append({**kw, 'match_count': match_count})
+    matched_kw.sort(key=lambda x: x['match_count'] * 1000 + x.get('impressions', 0), reverse=True)
+    
+    return jsonify({
+        'title': title,
+        'keywords': keywords,
+        'related_posts': related[:10],
+        'gsc_keywords': matched_kw[:15],
+        'summary': {
+            'keyword_count': len(keywords),
+            'related_count': len(related),
+            'gsc_match_count': len(matched_kw)
+        }
+    })
 
 
 if __name__ == '__main__':

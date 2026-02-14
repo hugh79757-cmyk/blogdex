@@ -10,7 +10,7 @@ SNAPSHOT_DIR = "/Users/twinssn/Projects/blogdex/cli/snapshots"
 
 
 def run():
-    files = sorted([f for f in os.listdir(SNAPSHOT_DIR) if f.endswith(".json")])
+    files = sorted([f for f in os.listdir(SNAPSHOT_DIR) if f.startswith("gsc_") and f.endswith(".json")])
     console.print(f"[cyan]스냅샷 {len(files)}개 업로드 시작[/]\n")
 
     for fname in files:
@@ -41,6 +41,7 @@ def run():
                     "site": site_name,
                     "date": date,
                     "query": kw["query"],
+                    "page": kw.get("page", ""),
                     "clicks": kw["clicks"],
                     "impressions": kw["impressions"],
                     "ctr": kw["ctr"],

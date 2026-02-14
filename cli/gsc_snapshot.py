@@ -24,6 +24,10 @@ SITES = [
     "https://hotissue.rotcha.kr/",
     "https://travel.rotcha.kr/",
     "https://info.techpawz.com/",
+    "https://mimdiomcat.tistory.com/",
+    "https://foodwater.tistory.com/",
+    "https://achaanstree.tistory.com/",
+    "https://zodiac.techpawz.com/",
 ]
 
 
@@ -60,7 +64,7 @@ def run():
                 body={
                     "startDate": start_str,
                     "endDate": end_str,
-                    "dimensions": ["query"],
+                    "dimensions": ["query", "page"],
                     "rowLimit": 500,
                 }
             ).execute()
@@ -74,10 +78,11 @@ def run():
             total_impressions += impressions
 
             keywords = []
-            sorted_rows = sorted(rows, key=lambda r: r["impressions"], reverse=True)[:50]
+            sorted_rows = sorted(rows, key=lambda r: r["impressions"], reverse=True)[:100]
             for row in sorted_rows:
                 keywords.append({
                     "query": row["keys"][0],
+                    "page": row["keys"][1] if len(row["keys"]) > 1 else "",
                     "clicks": int(row["clicks"]),
                     "impressions": int(row["impressions"]),
                     "ctr": round(row["ctr"] * 100, 2),
