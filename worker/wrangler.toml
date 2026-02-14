@@ -1,0 +1,8 @@
+name = "blogdex-api"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "blogdex_db"
+database_id = "402564d6-83c0-4b49-ae76-a5caa5809c45"
