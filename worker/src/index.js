@@ -172,16 +172,24 @@ export default {
       }
 
       if (path === "/gsc/keywords" && method === "GET") {
-        const days = url.searchParams.get("days") || "30";
-        const site = url.searchParams.get("site") || "";
-        const limit = url.searchParams.get("limit") || "100";
-        let query = "SELECT query, SUM(clicks) as clicks, SUM(impressions) as impressions, ROUND(AVG(position), 1) as avg_position, CASE WHEN SUM(impressions) > 0 THEN ROUND(SUM(clicks) * 100.0 / SUM(impressions), 2) ELSE 0 END as ctr FROM gsc_keywords WHERE date >= date('now', '-' || ? || ' days')";
-        const binds = [days];
-        if (site) { query += " AND site = ?"; binds.push(site); }
-        query += " GROUP BY query ORDER BY impressions DESC LIMIT ?";
-        binds.push(limit);
-        const { results } = await env.DB.prepare(query).bind(...binds).all();
-        return json(results);
+        const days = parseInt(url.searchParams.get("days") || "30");
+        const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+        const { results } = await env.DB.prepare(
+          "SELECT query, site, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(position) as avg_position FROM gsc_keywords WHERE date >= ? GROUP BY query, site ORDER BY impressions DESC LIMIT 500"
+        ).bind(since).all();
+        const enriched = [];
+        for (const r of results) {
+          let blog_name = r.site || '';
+          try {
+            const host = new URL(r.site || 'http://x').hostname.replace('www.','');
+            const { results: blogs } = await env.DB.prepare("SELECT name FROM blogs WHERE url LIKE ? LIMIT 1").bind('%' + host + '%').all();
+            if (blogs.length > 0) blog_name = blogs[0].name;
+            else blog_name = host;
+          } catch(e) { blog_name = r.site || '-'; }
+          const ctr = r.impressions > 0 ? Math.round(r.clicks / r.impressions * 10000) / 100 : 0;
+          enriched.push({ query: r.query, site: r.site, blog_name, clicks: r.clicks, impressions: r.impressions, avg_position: Math.round((r.avg_position || 0) * 10) / 10, ctr });
+        }
+        return json(enriched);
       }
 
       if (path === "/gsc/keywords/trend" && method === "GET") {
@@ -357,26 +365,7 @@ export default {
           const { results } = await env.DB.prepare("SELECT * FROM collected_titles WHERE status = ? ORDER BY id DESC LIMIT ? OFFSET ?").bind(status, limit, offset).all();
           rows = results;
         }
-        // 발행 블로그 매칭
-        const enriched = [];
-        for (const t of rows) {
-          const words = t.title.split(/\s+/).filter(w => w.length >= 2).slice(0, 3);
-          let matchedBlogs = [];
-          for (const w of words) {
-            const { results: posts } = await env.DB.prepare(
-              "SELECT p.title, b.name as blog_name, b.platform FROM my_posts p JOIN blogs b ON p.blog_id = b.id WHERE p.title LIKE ? LIMIT 5"
-            ).bind('%' + w + '%').all();
-            matchedBlogs.push(...posts);
-          }
-          const seen = new Set();
-          const unique = matchedBlogs.filter(p => { const k = p.title; if(seen.has(k)) return false; seen.add(k); return true; });
-          const filtered = unique.filter(p => {
-            const matched = words.filter(w => p.title && p.title.includes(w)).length;
-            return matched >= 2;
-          }).slice(0, 2);
-          enriched.push({ ...t, published_in: filtered });
-        }
-        return json({ total: countRow?.total || 0, page, limit, data: enriched });
+        return json({ total: countRow?.total || 0, page, limit, data: rows });
       }
 
       // --- 타이틀 상세 (클릭시 정보) ---
@@ -385,20 +374,40 @@ export default {
         const { results: titleRows } = await env.DB.prepare("SELECT * FROM collected_titles WHERE id = ?").bind(titleId).all();
         if (titleRows.length === 0) return json({ error: "Not found" }, 404);
         const title = titleRows[0];
-        const words = title.title.split(/\s+/).filter(w => w.length >= 2).slice(0, 5);
+        const stopWords = ['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','이','그','저','것','수','등','및','또','더','를','을','에','의','가','은','는','으로','에서','와','과','도','만','부터','까지','처럼','같은','한국','한국은','처음','처음이지','어서','어서와','텐트','밖은','유럽','맛집','레시피','만들기','방송','특집','편','일','월','년','집','곳','때','중','후','전','것','들','위','속','간'];
+        const words = title.title.split(/\s+/).filter(w => w.length >= 2 && !stopWords.includes(w.toLowerCase())).slice(0, 6);
+        
+        // 관련 포스트 - 최소 2개 키워드 동시 매칭
         let relatedPosts = [];
-        for (const w of words) {
-          const { results: found } = await env.DB.prepare("SELECT p.*, b.name as blog_name FROM my_posts p JOIN blogs b ON p.blog_id = b.id WHERE p.title LIKE ? LIMIT 10").bind('%' + w + '%').all();
-          relatedPosts.push(...found);
+        if (words.length >= 2) {
+          const { results: allPosts } = await env.DB.prepare("SELECT p.*, b.name as blog_name FROM my_posts p JOIN blogs b ON p.blog_id = b.id").all();
+          for (const p of allPosts) {
+            if (!p.title) continue;
+            const matchCount = words.filter(w => p.title.includes(w)).length;
+            if (matchCount >= 2) {
+              relatedPosts.push({ ...p, match_count: matchCount });
+            }
+          }
+          relatedPosts.sort((a, b) => b.match_count - a.match_count);
+          relatedPosts = relatedPosts.slice(0, 10);
         }
-        const seen = new Set();
-        relatedPosts = relatedPosts.filter(p => { const k = p.url||p.title; if(seen.has(k)) return false; seen.add(k); return true; }).slice(0, 10);
+        
+        // GSC 키워드 - 핵심 키워드 2개 이상 포함된 것만
         let gscData = [];
-        for (const w of words) {
-          const { results: kw } = await env.DB.prepare("SELECT site, query, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(position) as avg_position FROM gsc_keywords WHERE query LIKE ? GROUP BY site, query ORDER BY impressions DESC LIMIT 10").bind('%' + w + '%').all();
-          gscData.push(...kw);
+        if (words.length >= 2) {
+          const topWords = words.slice(0, 4);
+          const { results: allKw } = await env.DB.prepare("SELECT site, query, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(position) as avg_position FROM gsc_keywords GROUP BY site, query HAVING impressions >= 1 ORDER BY impressions DESC").all();
+          for (const kw of allKw) {
+            const matchCount = topWords.filter(w => kw.query.includes(w)).length;
+            if (matchCount >= 2) {
+              gscData.push({ ...kw, match_count: matchCount });
+            }
+          }
+          gscData.sort((a, b) => b.match_count - a.match_count || b.impressions - a.impressions);
+          gscData = gscData.slice(0, 20);
         }
-        return json({ title: title, related_posts: relatedPosts, gsc_keywords: gscData.slice(0, 20) });
+        
+        return json({ title: title, related_posts: relatedPosts, gsc_keywords: gscData });
       }
 
 

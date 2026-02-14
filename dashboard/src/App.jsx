@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import api from './api'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const tabs = ['대시보드', '사이트별', '키워드', '리라이트 큐', '타이틀 관리', '키워드 체크']
+const tabs = ['대시보드', '사이트별', '키워드', '리라이트 큐', '타이틀 관리', '타이틀 수집', '키워드 체크']
 
 const HIGH_PATTERNS = ['추천','비교','가격','후기','리뷰','순위','신청','방법','절차','가입','등록','발급','할인','쿠폰','무료','혜택','보험','대출','적금','투자','보조금','지원금','환급','세금','vs','차이','장단점','구매']
 const LOW_PATTERNS = ['뜻','의미','영어로','누구','나이','키','몸무게','생일','mbti','학력']
@@ -165,6 +165,7 @@ function KeywordsView() {
   const [keywords, setKeywords] = useState([])
   const [days, setDays] = useState(30)
   const [filter, setFilter] = useState('')
+  const [limit, setLimit] = useState(200)
   const { sortField, sortDir, onSort, sortData } = useSort('impressions')
 
   useEffect(() => {
@@ -195,6 +196,14 @@ function KeywordsView() {
           </button>
         ))}
       </div>
+      <div style={{display:'flex',gap:4,marginBottom:16,alignItems:'center'}}>
+        <span style={{fontSize:12,color:'#6b7280',marginRight:4}}>표시:</span>
+        {[50,100,200,500].map(n => (
+          <button key={n} onClick={() => setLimit(n)}
+            style={{padding:'4px 10px',borderRadius:6,border:'none',fontSize:12,cursor:'pointer',
+              background: limit===n ? '#3b82f6' : '#e5e7eb', color: limit===n ? '#fff' : '#333'}}>{n}개</button>
+        ))}
+      </div>
       <div style={{marginBottom:8,color:'#666',fontSize:13}}>
         총 {keywords.length}개 | HIGH {keywords.filter(k=>k.value==='high').length} | MED {keywords.filter(k=>k.value==='medium').length} | LOW {keywords.filter(k=>k.value==='low').length}
       </div>
@@ -202,6 +211,7 @@ function KeywordsView() {
         <thead>
           <tr style={{background:'#f8fafc'}}>
             <SortHeader label="키워드" field="query" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="블로그" field="blog_name" sortField={sortField} sortDir={sortDir} onSort={onSort} />
             <SortHeader label="가치" field="value" sortField={sortField} sortDir={sortDir} onSort={onSort} />
             <SortHeader label="노출" field="impressions" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
             <SortHeader label="클릭" field="clicks" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
@@ -213,6 +223,7 @@ function KeywordsView() {
           {sortData(keywords).slice(0,100).map((k,i) => (
             <tr key={i} style={{borderBottom:'1px solid #eee'}}>
               <td style={tdStyle}>{k.query}</td>
+              <td style={{...tdStyle,fontSize:11,color:'#6b7280'}}>{k.blog_name || k.site || '-'}</td>
               <td style={tdStyle}>
                 <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,
                   background: k.value==='high'?'#fee2e2':k.value==='medium'?'#fef3c7':'#f3f4f6',
@@ -372,6 +383,25 @@ function TitleManager() {
     } catch(e) { alert('실패: ' + e.message) }
   }
 
+  const [analyzeResults, setAnalyzeResults] = useState([])
+  const [analyzeLoading, setAnalyzeLoading] = useState(false)
+
+  const analyzeSelected = async () => {
+    if (selected.size === 0) return
+    setAnalyzeLoading(true)
+    const selectedTitles = browseData.filter(t => selected.has(t.id)).map(t => t.title)
+    try {
+      const allRecs = []
+      for (let i = 0; i < selectedTitles.length; i += 20) {
+        const batch = selectedTitles.slice(i, i + 20)
+        const res = await api.post('/titles/recommend', { titles: batch })
+        allRecs.push(...res.data)
+      }
+      setAnalyzeResults(allRecs)
+    } catch(e) { alert('분석 실패: ' + e.message) }
+    setAnalyzeLoading(false)
+  }
+
   const addTitle = () => { if (input.trim()) { setTitles([...titles, input.trim()]); setInput('') } }
   const removeTitle = (i) => setTitles(titles.filter((_, idx) => idx !== i))
   const saveTitles = async () => {
@@ -466,6 +496,37 @@ function TitleManager() {
               <button onClick={() => bulkStatus('rejected')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#ef4444',color:'#fff',fontSize:12,cursor:'pointer'}}>제외</button>
               <button onClick={() => bulkStatus('used')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#3b82f6',color:'#fff',fontSize:12,cursor:'pointer'}}>사용됨</button>
               <button onClick={() => bulkStatus('pending')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#f59e0b',color:'#fff',fontSize:12,cursor:'pointer'}}>대기로</button>
+              <button onClick={analyzeSelected} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#7c3aed',color:'#fff',fontSize:12,cursor:'pointer',marginLeft:'auto'}}>블로그 추천 분석</button>
+            </div>
+          )}
+
+          {analyzeLoading && <p style={{color:'#7c3aed',marginBottom:12}}>블로그 추천 분석 중...</p>}
+          {analyzeResults.length > 0 && (
+            <div style={{marginBottom:16,background:'#faf5ff',border:'1px solid #e9d5ff',borderRadius:12,padding:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+                <h4 style={{margin:0,color:'#7c3aed'}}>블로그 추천 결과 ({analyzeResults.length}건)</h4>
+                <button onClick={() => setAnalyzeResults([])} style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer'}}>닫기</button>
+              </div>
+              <table style={tableStyle}>
+                <thead><tr style={{background:'#f8fafc'}}>
+                  <th style={thStyle}>타이틀</th>
+                  <th style={{...thStyle,textAlign:'center'}}>추천 블로그</th>
+                  <th style={{...thStyle,textAlign:'right'}}>점수</th>
+                  <th style={{...thStyle,textAlign:'right'}}>노출</th>
+                  <th style={{...thStyle,textAlign:'center'}}>중복</th>
+                  <th style={thStyle}>근거</th>
+                </tr></thead>
+                <tbody>{analyzeResults.map((r, i) => (
+                  <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
+                    <td style={{...tdStyle,maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.title}</td>
+                    <td style={{...tdStyle,textAlign:'center',fontWeight:600,color: r.score > 50 ? '#10b981' : r.score > 10 ? '#f59e0b' : '#6b7280'}}>{r.recommendation || '-'}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{r.score || 0}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{r.impressions || 0}</td>
+                    <td style={{...tdStyle,textAlign:'center'}}>{r.dup_count || 0}</td>
+                    <td style={{...tdStyle,fontSize:11,color:'#6b7280'}}>{(r.reasons || []).join(', ') || '-'}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
             </div>
           )}
 
@@ -507,7 +568,24 @@ function TitleManager() {
       {/* === 등록/CSV 탭 === */}
       {tab === 'add' && (
         <div>
-          <div onDrop={handleDrop} onDragOver={e=>{e.preventDefault();setDragOver(true)}} onDragLeave={()=>setDragOver(false)}
+      <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:12,padding:16,marginBottom:16}}>
+        <h4 style={{margin:'0 0 8px',fontSize:14,color:'#166534'}}>경쟁사 타이틀 수집</h4>
+        <p style={{fontSize:12,color:'#374151',margin:'0 0 8px'}}>터미널에서 실행 후 생성된 CSV를 아래에 드래그하세요</p>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <div style={{background:'#fff',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 12px',fontSize:12}}>
+            <div style={{fontWeight:600,marginBottom:4}}>일반 사이트 (티스토리/WP)</div>
+            <code style={{fontSize:11,color:'#6b7280'}}>python crawl_titles.py</code>
+          </div>
+          <div style={{background:'#fff',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 12px',fontSize:12}}>
+            <div style={{fontWeight:600,marginBottom:4}}>네이버 블로그</div>
+            <code style={{fontSize:11,color:'#6b7280'}}>python crawl_naver.py</code>
+          </div>
+        </div>
+        <p style={{fontSize:11,color:'#6b7280',margin:'8px 0 0'}}>CSV 저장 위치: cli/collected_titles/</p>
+      </div>
+
+
+      <div onDrop={handleDrop} onDragOver={e=>{e.preventDefault();setDragOver(true)}} onDragLeave={()=>setDragOver(false)}
             style={{border:dragOver?'2px solid #3b82f6':'2px dashed #d1d5db',borderRadius:12,padding:32,textAlign:'center',marginBottom:16,background:dragOver?'#eff6ff':'#fafafa',cursor:'pointer'}}
             onClick={()=>document.getElementById('csvInput').click()}>
             <div style={{fontSize:14,color:'#6b7280'}}>CSV 파일을 여기에 드래그하거나 클릭</div>
@@ -660,6 +738,100 @@ function TitleManager() {
   )
 }
 
+function TitleCrawler() {
+  const [url, setUrl] = useState('')
+  const [maxCount, setMaxCount] = useState(100)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState('')
+  const LOCAL_API = 'http://localhost:5001'
+
+  const startCrawl = async () => {
+    if (!url.trim()) return
+    setLoading(true)
+    setError('')
+    setResult(null)
+    try {
+      const res = await fetch(LOCAL_API + '/api/crawl', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ url: url.trim(), max: maxCount })
+      })
+      const data = await res.json()
+      if (data.error && !data.titles) {
+        setError(data.error)
+      } else {
+        setResult(data)
+      }
+    } catch(e) {
+      setError('로컬 서버 연결 실패. 터미널에서 먼저 실행하세요: python local_api.py')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div>
+      <div style={{background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:12,padding:16,marginBottom:16}}>
+        <p style={{fontSize:12,color:'#1e40af',margin:0}}>로컬 서버 필요: <code>cd /Users/twinssn/Projects/blogdex/cli && python local_api.py</code></p>
+      </div>
+
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.tistory.com 또는 https://blog.naver.com/blogid"
+          onKeyDown={e => e.key === 'Enter' && startCrawl()}
+          style={{...inputStyle,flex:1,minWidth:300}} />
+        <select value={maxCount} onChange={e => setMaxCount(Number(e.target.value))}
+          style={{...inputStyle,width:100}}>
+          <option value={50}>50개</option>
+          <option value={100}>100개</option>
+          <option value={200}>200개</option>
+          <option value={500}>500개</option>
+          <option value={1000}>1000개</option>
+        </select>
+        <button onClick={startCrawl} disabled={loading}
+          style={{...btnStyle, opacity: loading ? 0.5 : 1}}>
+          {loading ? '수집 중...' : '수집 시작'}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:12,marginBottom:16,color:'#dc2626',fontSize:13}}>
+          {error}
+        </div>
+      )}
+
+      {result && (
+        <div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
+            <StatCard label="출처" value={result.source} />
+            <StatCard label="전체 포스트" value={result.total_posts} />
+            <StatCard label="수집된 타이틀" value={result.crawled} color="#10b981" />
+            <StatCard label="DB 저장" value={result.saved_to_db ? 'OK' : '실패'} color={result.saved_to_db ? '#10b981' : '#ef4444'} />
+          </div>
+
+          {result.titles && result.titles.length > 0 && (
+            <table style={tableStyle}>
+              <thead><tr style={{background:'#f8fafc'}}>
+                <th style={{...thStyle,width:40}}>#</th>
+                <th style={thStyle}>타이틀</th>
+                <th style={thStyle}>URL</th>
+              </tr></thead>
+              <tbody>{result.titles.map((t, i) => (
+                <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
+                  <td style={{...tdStyle,textAlign:'center',color:'#9ca3af'}}>{i+1}</td>
+                  <td style={tdStyle}>{t.title}</td>
+                  <td style={{...tdStyle,fontSize:11,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    <a href={t.url} target="_blank" rel="noreferrer" style={{color:'#3b82f6'}}>{t.url}</a>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function KeywordCheck() {
   const [keyword, setKeyword] = useState('')
   const [results, setResults] = useState([])
@@ -738,7 +910,8 @@ function App() {
       {tab===2 && <KeywordsView/>}
       {tab===3 && <RewriteQueue/>}
       {tab===4 && <TitleManager/>}
-      {tab===5 && <KeywordCheck/>}
+      {tab===5 && <TitleCrawler/>}
+      {tab===6 && <KeywordCheck/>}
     </div>
   )
 }
