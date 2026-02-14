@@ -18,3 +18,9 @@ __pycache__/
 .venv/
 venv/
 .wrangler/
+backup*.py
+backup*.txt
+cli/snapshots/
+cli/coupang_data/
+cli/.env
+.DS_Store

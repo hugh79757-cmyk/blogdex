@@ -1,11 +1,13 @@
 import yaml
 from googleapiclient.discovery import build
 from google_auth import get_credentials
-from api import get, post
+from api import get
+from sync_utils import get_existing_posts, save_new_posts
 from rich.console import Console
 
 console = Console()
 PUBLISH_CONFIG = "/Users/twinssn/Projects/blogdex/cli/publish_config.yaml"
+
 
 def run():
     creds = get_credentials()
@@ -33,8 +35,10 @@ def run():
 
         console.print(f"\n[bold cyan]{name}[/] (blog_id: {blog_id}) 수집 중...")
 
+        existing = get_existing_posts(db_blog_id)
+        console.print(f"  DB 기존 글: {len(existing)}개")
+
         page_token = None
-        total = 0
         all_posts = []
 
         while True:
@@ -64,21 +68,14 @@ def run():
                     "published_at": p["published"][:10]
                 })
 
-            total += len(items)
-            console.print(f"  {total}개 수집...")
+            console.print(f"  {len(all_posts)}개 수집...")
 
             page_token = resp.get("nextPageToken")
             if not page_token:
                 break
 
-        if all_posts:
-            for i in range(0, len(all_posts), 100):
-                batch = all_posts[i:i+100]
-                post("/posts", {"posts": batch})
-            console.print(f"  [green]완료: {total}개 저장[/]")
-        else:
-            console.print(f"  [yellow]글 없음[/]")
+        save_new_posts(all_posts, existing, name)
+
 
 if __name__ == "__main__":
     run()
-

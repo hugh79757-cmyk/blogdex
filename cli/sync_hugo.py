@@ -1,12 +1,13 @@
 import yaml
-import os
 import re
 from pathlib import Path
-from api import get, post
+from api import get
+from sync_utils import get_existing_posts, save_new_posts, safe_title
 from rich.console import Console
 
 console = Console()
 PUBLISH_CONFIG = "/Users/twinssn/Projects/blogdex/cli/publish_config.yaml"
+
 
 def parse_front_matter(filepath):
     text = filepath.read_text(encoding="utf-8")
@@ -49,12 +50,16 @@ def parse_front_matter(filepath):
 
     return meta
 
+
 def run():
     with open(PUBLISH_CONFIG, "r") as f:
         config = yaml.safe_load(f)
 
     blogs_in_db = get("/blogs")
     hugo_sites = config.get("sites", {}).get("hugo", [])
+
+    total_new = 0
+    total_skip = 0
 
     for h in hugo_sites:
         name = h["name"]
@@ -78,10 +83,13 @@ def run():
 
         console.print(f"\n[bold cyan]{name}[/] ({content_path}) 수집 중...")
 
+        existing = get_existing_posts(db_blog_id)
+        console.print(f"  DB 기존 글: {len(existing)}개")
+
         all_posts = []
         for md_file in content_path.rglob("*.md"):
             meta = parse_front_matter(md_file)
-            title = meta.get("title", "")
+            title = safe_title(meta.get("title", ""))
             if not title:
                 continue
 
@@ -92,7 +100,6 @@ def run():
             if isinstance(categories, str):
                 categories = [categories]
             keywords = ", ".join(tags + categories)
-
             date = str(meta.get("date", ""))[:10]
 
             all_posts.append({
@@ -103,14 +110,12 @@ def run():
                 "published_at": date
             })
 
-        if all_posts:
-            for i in range(0, len(all_posts), 100):
-                batch = all_posts[i:i+100]
-                post("/posts", {"posts": batch})
-            console.print(f"  [green]완료: {len(all_posts)}개 저장[/]")
-        else:
-            console.print(f"  [yellow]글 없음[/]")
+        new, skip = save_new_posts(all_posts, existing, name)
+        total_new += new
+        total_skip += skip
+
+    console.print(f"\n[bold]Hugo 전체: 신규 {total_new}개 저장, {total_skip}개 스킵[/]")
+
 
 if __name__ == "__main__":
     run()
-

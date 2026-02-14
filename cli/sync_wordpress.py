@@ -1,10 +1,12 @@
 import yaml
 import requests
-from api import get, post
+from api import get
+from sync_utils import get_existing_posts, save_new_posts
 from rich.console import Console
 
 console = Console()
 PUBLISH_CONFIG = "/Users/twinssn/Projects/blogdex/cli/publish_config.yaml"
+
 
 def run():
     with open(PUBLISH_CONFIG, "r") as f:
@@ -17,7 +19,7 @@ def run():
         name = wp["name"]
         url = wp["url"].rstrip("/")
         username = wp["username"]
-        password = wp["app_password"]
+        password = wp.get("app_password", wp.get("password", ""))
 
         blog_id = None
         for b in blogs_in_db:
@@ -31,8 +33,10 @@ def run():
 
         console.print(f"\n[bold cyan]{name}[/] ({url}) 수집 중...")
 
+        existing = get_existing_posts(blog_id)
+        console.print(f"  DB 기존 글: {len(existing)}개")
+
         page = 1
-        total = 0
         all_posts = []
 
         while True:
@@ -63,19 +67,11 @@ def run():
                     "published_at": p["date"][:10]
                 })
 
-            total += len(posts)
             console.print(f"  페이지 {page} — {len(posts)}개")
             page += 1
 
-        if all_posts:
-            for i in range(0, len(all_posts), 100):
-                batch = all_posts[i:i+100]
-                post("/posts", {"posts": batch})
+        save_new_posts(all_posts, existing, name)
 
-            console.print(f"  [green]완료: {total}개 저장[/]")
-        else:
-            console.print(f"  [yellow]글 없음[/]")
 
 if __name__ == "__main__":
     run()
-

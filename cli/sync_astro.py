@@ -1,11 +1,13 @@
 import yaml
 from pathlib import Path
-from api import get, post
+from api import get
 from sync_hugo import parse_front_matter
+from sync_utils import get_existing_posts, save_new_posts
 from rich.console import Console
 
 console = Console()
 PUBLISH_CONFIG = "/Users/twinssn/Projects/blogdex/cli/publish_config.yaml"
+
 
 def run():
     with open(PUBLISH_CONFIG, "r") as f:
@@ -36,6 +38,9 @@ def run():
 
         console.print(f"\n[bold cyan]{name}[/] ({content_path}) 수집 중...")
 
+        existing = get_existing_posts(db_blog_id)
+        console.print(f"  DB 기존 글: {len(existing)}개")
+
         all_posts = []
         for md_file in content_path.rglob("*.md"):
             meta = parse_front_matter(md_file)
@@ -60,14 +65,8 @@ def run():
                 "published_at": date
             })
 
-        if all_posts:
-            for i in range(0, len(all_posts), 100):
-                batch = all_posts[i:i+100]
-                post("/posts", {"posts": batch})
-            console.print(f"  [green]완료: {len(all_posts)}개 저장[/]")
-        else:
-            console.print(f"  [yellow]글 없음[/]")
+        save_new_posts(all_posts, existing, name)
+
 
 if __name__ == "__main__":
     run()
-
