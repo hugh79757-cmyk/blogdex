@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import api from './api'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const tabs = ['대시보드', '사이트별', '키워드', '리라이트 큐', '타이틀 관리', '타이틀 수집', '키워드 체크', '수익 기회']
+const tabs = ['오늘의 코칭', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크']
 
 const HIGH_PATTERNS = ['추천','비교','가격','후기','리뷰','순위','신청','방법','절차','가입','등록','발급','할인','쿠폰','무료','혜택','보험','대출','적금','투자','보조금','지원금','환급','세금','vs','차이','장단점','구매']
 const LOW_PATTERNS = ['뜻','의미','영어로','누구','나이','키','몸무게','생일','mbti','학력']
@@ -889,6 +889,109 @@ function TitleCrawler() {
 }
 
 
+
+function CoachingDashboard() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.get('/coaching/today').then(d => { setData(d); setLoading(false) }).catch(e => { console.error(e); setLoading(false) })
+  }, [])
+
+  if (loading) return <div style={{padding:40,textAlign:'center',fontSize:18}}>코칭 데이터 로딩 중...</div>
+  if (!data) return <div style={{padding:40,textAlign:'center',color:'#ef4444'}}>데이터를 불러올 수 없습니다</div>
+
+  const s = data.summary || {}
+  const progressColor = s.month_progress >= 100 ? '#10b981' : s.month_progress >= 60 ? '#f59e0b' : '#ef4444'
+
+  // 어제 vs 그저께 비교
+  const yMap = {}; (data.yesterday_compare?.yesterday || []).forEach(r => yMap[r.site] = r)
+  const bMap = {}; (data.yesterday_compare?.before || []).forEach(r => bMap[r.site] = r)
+
+  return <div>
+    <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap'}}>
+      <div style={{flex:1,minWidth:200,background:'linear-gradient(135deg,#667eea,#764ba2)',borderRadius:16,padding:24,color:'#fff'}}>
+        <div style={{fontSize:14,opacity:0.8}}>이번 달 수익</div>
+        <div style={{fontSize:36,fontWeight:800}}>${s.month_revenue?.toFixed(2)}</div>
+        <div style={{fontSize:13,marginTop:8}}>목표 ${s.month_target} 대비 {s.month_progress}%</div>
+        <div style={{background:'rgba(255,255,255,0.3)',borderRadius:8,height:8,marginTop:8}}>
+          <div style={{background:'#fff',borderRadius:8,height:8,width:Math.min(s.month_progress,100)+'%'}}></div>
+        </div>
+      </div>
+      <div style={{flex:1,minWidth:200,background:'#fff',borderRadius:16,padding:24,border:'2px solid #e5e7eb'}}>
+        <div style={{fontSize:14,color:'#6b7280'}}>어제 수익</div>
+        <div style={{fontSize:36,fontWeight:800,color:'#059669'}}>${s.yesterday_rev?.toFixed(2)}</div>
+        <div style={{fontSize:13,color:'#6b7280',marginTop:8}}>PV {s.yesterday_pv?.toLocaleString()}</div>
+      </div>
+      <div style={{flex:1,minWidth:200,background:'#fff',borderRadius:16,padding:24,border:'2px solid #e5e7eb'}}>
+        <div style={{fontSize:14,color:'#6b7280'}}>일평균 수익</div>
+        <div style={{fontSize:36,fontWeight:800,color:'#2563eb'}}>${s.daily_avg?.toFixed(2)}</div>
+        <div style={{fontSize:13,color: s.daily_needed > s.daily_avg ? '#ef4444' : '#10b981',marginTop:8}}>
+          목표 달성하려면 하루 ${s.daily_needed?.toFixed(2)} 필요
+        </div>
+      </div>
+    </div>
+
+    <h3 style={{fontSize:18,fontWeight:700,marginBottom:16,color:'#111827'}}>오늘 할 일</h3>
+
+    {data.zero_revenue_sites?.length > 0 && <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:12,padding:16,marginBottom:12}}>
+      <div style={{fontWeight:700,color:'#dc2626',marginBottom:4}}>설정 확인 필요</div>
+      {data.zero_revenue_sites.map((z,i) => (
+        <div key={i} style={{fontSize:14,color:'#991b1b'}}>{z.site} — PV {z.pv?.toLocaleString()}인데 수익 $0. 애드센스 연결을 확인하세요.</div>
+      ))}
+    </div>}
+
+    {data.rewrite_targets?.length > 0 && <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:12,padding:16,marginBottom:12}}>
+      <div style={{fontWeight:700,color:'#d97706',marginBottom:8}}>타이틀 변경하면 클릭이 생깁니다</div>
+      {data.rewrite_targets.slice(0,5).map((r,i) => (
+        <div key={i} style={{fontSize:14,color:'#92400e',marginBottom:6}}>
+          <span style={{fontWeight:600}}>{r.site}</span> — "{r.query}" 노출 {r.imp}회, 클릭 0, 순위 {r.pos}위.
+          <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',marginLeft:8,fontSize:12}}>글 보기</a>
+        </div>
+      ))}
+    </div>}
+
+    {data.top_rpm_pages?.length > 0 && <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:12,padding:16,marginBottom:12}}>
+      <div style={{fontWeight:700,color:'#16a34a',marginBottom:8}}>이런 키워드로 글을 쓰세요 (RPM 높은 글)</div>
+      {data.top_rpm_pages.slice(0,5).map((r,i) => (
+        <div key={i} style={{fontSize:14,color:'#166534',marginBottom:6}}>
+          <span style={{fontWeight:600}}>{r.site}</span> — RPM ${r.rpm} | PV {r.pv} | 수익 ${r.rev?.toFixed(2)}
+          <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',marginLeft:8,fontSize:12}}>글 보기</a>
+        </div>
+      ))}
+      <div style={{fontSize:13,color:'#6b7280',marginTop:8}}>이 글들의 키워드를 구글에 검색 → 상위 블로그 URL을 타이틀 수집 탭에 입력하세요</div>
+    </div>}
+
+    <h3 style={{fontSize:18,fontWeight:700,marginTop:24,marginBottom:16,color:'#111827'}}>블로그별 상태</h3>
+    <table style={{width:'100%',borderCollapse:'collapse'}}>
+      <thead><tr>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'left',fontSize:13,fontWeight:600,background:'#f9fafb'}}>사이트</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'right',fontSize:13,fontWeight:600,background:'#f9fafb'}}>총 PV</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'right',fontSize:13,fontWeight:600,background:'#f9fafb'}}>총 수익</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'right',fontSize:13,fontWeight:600,background:'#f9fafb'}}>RPM</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'right',fontSize:13,fontWeight:600,background:'#f9fafb'}}>어제 PV</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'center',fontSize:13,fontWeight:600,background:'#f9fafb'}}>변화</th>
+      </tr></thead>
+      <tbody>{(data.site_summary || []).map((r,i) => {
+        const rpm = r.pv > 0 ? (r.rev / r.pv * 1000) : 0
+        const yPv = yMap[r.site]?.pv || 0
+        const bPv = bMap[r.site]?.pv || 0
+        const change = bPv > 0 ? Math.round((yPv - bPv) / bPv * 100) : 0
+        return <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',fontWeight:600,color:'#2563eb',fontSize:13}}>{r.site}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'right',fontSize:13}}>{r.pv?.toLocaleString()}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'right',fontSize:13,color:'#059669',fontWeight:600}}>${r.rev?.toFixed(2)}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'right',fontSize:13,fontWeight:700,color: rpm > 5 ? '#dc2626' : rpm > 2 ? '#f59e0b' : '#6b7280'}}>${rpm.toFixed(2)}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'right',fontSize:13}}>{yPv}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'center',fontSize:13,fontWeight:600,color: change > 0 ? '#10b981' : change < 0 ? '#ef4444' : '#6b7280'}}>
+            {change > 0 ? '+' : ''}{change}%
+          </td>
+        </tr>
+      })}</tbody>
+    </table>
+  </div>
+}
+
 function OpportunityDashboard() {
   const [rewrite, setRewrite] = useState([])
   const [topPages, setTopPages] = useState([])
@@ -1120,14 +1223,14 @@ function App() {
           </button>
         ))}
       </div>
-      {tab===0 && <Dashboard/>}
-      {tab===1 && <SitesView/>}
-      {tab===2 && <KeywordsView/>}
-      {tab===3 && <RewriteQueue/>}
-      {tab===4 && <TitleManager/>}
-      {tab===5 && <TitleCrawler/>}
-      {tab===6 && <KeywordCheck/>}
-      {tab===7 && <OpportunityDashboard/>}
+      {tab===0 && <CoachingDashboard/>}
+      {tab===1 && <OpportunityDashboard/>}
+      {tab===2 && <TitleCrawler/>}
+      {tab===3 && <TitleManager/>}
+      {tab===4 && <KeywordsView/>}
+      {tab===5 && <SitesView/>}
+      {tab===6 && <RewriteQueue/>}
+      {tab===7 && <KeywordCheck/>}
     </div>
   )
 }

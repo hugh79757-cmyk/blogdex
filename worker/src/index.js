@@ -476,6 +476,72 @@ export default {
       return json(results);
     }
 
+    
+    if (path === "/coaching/today" && method === "GET") {
+      // 1) 이번 달 수익 + 일별 수익
+      const { results: dailyRev } = await env.DB.prepare(
+        "SELECT date, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews GROUP BY date ORDER BY date DESC LIMIT 30"
+      ).all();
+
+      // 2) 사이트별 수익 요약
+      const { results: siteRev } = await env.DB.prepare(
+        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev, COUNT(DISTINCT page) as pages, COUNT(DISTINCT date) as days FROM ga4_pageviews WHERE revenue > 0 OR pageviews > 0 GROUP BY site ORDER BY rev DESC"
+      ).all();
+
+      // 3) 어제 vs 그저께 비교 (사이트별)
+      const dates = dailyRev.map(d => d.date).slice(0, 2);
+      let yesterdayData = [], beforeData = [];
+      if (dates.length >= 2) {
+        const { results: y } = await env.DB.prepare(
+          "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date = ? GROUP BY site"
+        ).bind(dates[0]).all();
+        yesterdayData = y;
+        const { results: b } = await env.DB.prepare(
+          "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date = ? GROUP BY site"
+        ).bind(dates[1]).all();
+        beforeData = b;
+      }
+
+      // 4) 타이틀 리라이트 대상 TOP 10
+      const { results: rewriteTargets } = await env.DB.prepare(
+        "SELECT site, query, page, SUM(impressions) as imp, ROUND(AVG(position),1) as pos FROM gsc_keywords WHERE page != '' AND impressions >= 3 GROUP BY site, query, page HAVING SUM(clicks) = 0 AND AVG(position) BETWEEN 3 AND 25 ORDER BY imp DESC LIMIT 10"
+      ).all();
+
+      // 5) RPM 상위 키워드 (경쟁사 리서치 가이드용)
+      const { results: topRpm } = await env.DB.prepare(
+        "SELECT g.site, g.page, SUM(g.pageviews) as pv, SUM(g.revenue) as rev, ROUND(SUM(g.revenue)/SUM(g.pageviews)*1000,2) as rpm FROM ga4_pageviews g WHERE g.pageviews >= 5 AND g.revenue > 0 GROUP BY g.site, g.page ORDER BY rpm DESC LIMIT 10"
+      ).all();
+
+      // 6) 수익 0 사이트 (설정 문제)
+      const zeroRev = siteRev.filter(s => s.pv >= 100 && s.rev === 0);
+
+      // 목표 계산
+      const thisMonth = dailyRev.filter(d => d.date.startsWith(dates[0]?.substring(0,7) || ''));
+      const monthRev = thisMonth.reduce((sum, d) => sum + (d.rev || 0), 0);
+      const monthDays = thisMonth.length;
+      const monthTarget = 300; // $300 목표
+      const dailyNeeded = monthDays > 0 ? (monthTarget - monthRev) / (30 - monthDays) : 10;
+
+      return json({
+        summary: {
+          month_revenue: Math.round(monthRev * 100) / 100,
+          month_target: monthTarget,
+          month_progress: Math.round(monthRev / monthTarget * 100),
+          month_days: monthDays,
+          daily_avg: Math.round(monthRev / (monthDays || 1) * 100) / 100,
+          daily_needed: Math.round(dailyNeeded * 100) / 100,
+          yesterday_rev: dailyRev[0]?.rev || 0,
+          yesterday_pv: dailyRev[0]?.pv || 0,
+        },
+        daily_revenue: dailyRev,
+        site_summary: siteRev,
+        yesterday_compare: { yesterday: yesterdayData, before: beforeData },
+        rewrite_targets: rewriteTargets,
+        top_rpm_pages: topRpm,
+        zero_revenue_sites: zeroRev,
+      });
+    }
+
     return json({ error: "Not found" }, 404);
         const title = titleRows[0];
         const stopWords = ['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','이','그','저','것','수','등','및','또','더','를','을','에','의','가','은','는','으로','에서','와','과','도','만','부터','까지','처럼','같은','한국','한국은','처음','처음이지','어서','어서와','텐트','밖은','유럽','맛집','레시피','만들기','방송','특집','편','일','월','년','집','곳','때','중','후','전','것','들','위','속','간'];
@@ -601,6 +667,72 @@ export default {
          ORDER BY total_rev DESC`
       ).all();
       return json(results);
+    }
+
+    
+    if (path === "/coaching/today" && method === "GET") {
+      // 1) 이번 달 수익 + 일별 수익
+      const { results: dailyRev } = await env.DB.prepare(
+        "SELECT date, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews GROUP BY date ORDER BY date DESC LIMIT 30"
+      ).all();
+
+      // 2) 사이트별 수익 요약
+      const { results: siteRev } = await env.DB.prepare(
+        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev, COUNT(DISTINCT page) as pages, COUNT(DISTINCT date) as days FROM ga4_pageviews WHERE revenue > 0 OR pageviews > 0 GROUP BY site ORDER BY rev DESC"
+      ).all();
+
+      // 3) 어제 vs 그저께 비교 (사이트별)
+      const dates = dailyRev.map(d => d.date).slice(0, 2);
+      let yesterdayData = [], beforeData = [];
+      if (dates.length >= 2) {
+        const { results: y } = await env.DB.prepare(
+          "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date = ? GROUP BY site"
+        ).bind(dates[0]).all();
+        yesterdayData = y;
+        const { results: b } = await env.DB.prepare(
+          "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date = ? GROUP BY site"
+        ).bind(dates[1]).all();
+        beforeData = b;
+      }
+
+      // 4) 타이틀 리라이트 대상 TOP 10
+      const { results: rewriteTargets } = await env.DB.prepare(
+        "SELECT site, query, page, SUM(impressions) as imp, ROUND(AVG(position),1) as pos FROM gsc_keywords WHERE page != '' AND impressions >= 3 GROUP BY site, query, page HAVING SUM(clicks) = 0 AND AVG(position) BETWEEN 3 AND 25 ORDER BY imp DESC LIMIT 10"
+      ).all();
+
+      // 5) RPM 상위 키워드 (경쟁사 리서치 가이드용)
+      const { results: topRpm } = await env.DB.prepare(
+        "SELECT g.site, g.page, SUM(g.pageviews) as pv, SUM(g.revenue) as rev, ROUND(SUM(g.revenue)/SUM(g.pageviews)*1000,2) as rpm FROM ga4_pageviews g WHERE g.pageviews >= 5 AND g.revenue > 0 GROUP BY g.site, g.page ORDER BY rpm DESC LIMIT 10"
+      ).all();
+
+      // 6) 수익 0 사이트 (설정 문제)
+      const zeroRev = siteRev.filter(s => s.pv >= 100 && s.rev === 0);
+
+      // 목표 계산
+      const thisMonth = dailyRev.filter(d => d.date.startsWith(dates[0]?.substring(0,7) || ''));
+      const monthRev = thisMonth.reduce((sum, d) => sum + (d.rev || 0), 0);
+      const monthDays = thisMonth.length;
+      const monthTarget = 300; // $300 목표
+      const dailyNeeded = monthDays > 0 ? (monthTarget - monthRev) / (30 - monthDays) : 10;
+
+      return json({
+        summary: {
+          month_revenue: Math.round(monthRev * 100) / 100,
+          month_target: monthTarget,
+          month_progress: Math.round(monthRev / monthTarget * 100),
+          month_days: monthDays,
+          daily_avg: Math.round(monthRev / (monthDays || 1) * 100) / 100,
+          daily_needed: Math.round(dailyNeeded * 100) / 100,
+          yesterday_rev: dailyRev[0]?.rev || 0,
+          yesterday_pv: dailyRev[0]?.pv || 0,
+        },
+        daily_revenue: dailyRev,
+        site_summary: siteRev,
+        yesterday_compare: { yesterday: yesterdayData, before: beforeData },
+        rewrite_targets: rewriteTargets,
+        top_rpm_pages: topRpm,
+        zero_revenue_sites: zeroRev,
+      });
     }
 
     return json({ error: "Not found" }, 404);
