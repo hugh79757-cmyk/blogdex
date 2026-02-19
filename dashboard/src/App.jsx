@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import api from './api'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const tabs = ['오늘의 코칭', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크']
+const tabs = ['오늘의 코칭', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크', '노인복지']
 
 const HIGH_PATTERNS = ['추천','비교','가격','후기','리뷰','순위','신청','방법','절차','가입','등록','발급','할인','쿠폰','무료','혜택','보험','대출','적금','투자','보조금','지원금','환급','세금','vs','차이','장단점','구매']
 const LOW_PATTERNS = ['뜻','의미','영어로','누구','나이','키','몸무게','생일','mbti','학력']
@@ -54,6 +54,141 @@ function StatCard({ label, value, color }) {
     <div style={{padding:16,background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',boxShadow:'0 1px 3px rgba(0,0,0,0.05)'}}>
       <div style={{fontSize:13,color:'#6b7280',marginBottom:4}}>{label}</div>
       <div style={{fontSize:28,fontWeight:700,color:color||'#111'}}>{value}</div>
+    </div>
+  )
+}
+
+function SeniorWelfare() {
+  const [dates, setDates] = useState([])
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [briefingHtml, setBriefingHtml] = useState('')
+  const [news, setNews] = useState([])
+  const [view, setView] = useState('briefing')
+  const [collecting, setCollecting] = useState(false)
+  const [collectResult, setCollectResult] = useState(null)
+
+  useEffect(() => {
+    loadDates()
+    loadNews()
+  }, [])
+
+  const loadDates = () => {
+    fetch('http://localhost:5001/senior/dates').then(r => r.json()).then(data => {
+      setDates(data)
+      if (r.data.length > 0 && !selectedDate) {
+        setSelectedDate(r.data[0])
+      }
+    }).catch(() => {})
+  }
+
+  const loadNews = () => {
+    fetch('http://localhost:5001/senior/news').then(r => r.json()).then(data => setNews(data)).catch(() => {})
+  }
+
+  useEffect(() => {
+    if (selectedDate) {
+      fetch(`http://localhost:5001/senior/briefing/${selectedDate}`)
+        .then(r => r.text())
+        .then(html => setBriefingHtml(html))
+        .catch(() => setBriefingHtml('<p>브리핑을 불러올 수 없습니다.</p>'))
+    }
+  }, [selectedDate])
+
+  const handleCollect = async () => {
+    setCollecting(true)
+    setCollectResult(null)
+    try {
+      const r = await fetch('http://localhost:5001/senior/collect', {method:'POST'}).then(r => r.json())
+      setCollectResult(r)
+      loadDates()
+      loadNews()
+    } catch (e) {
+      setCollectResult({ error: e.message })
+    }
+    setCollecting(false)
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={() => setView('briefing')}
+            style={{...pillStyle, background: view==='briefing' ? '#f59e0b' : '#e5e7eb', color: view==='briefing' ? '#fff' : '#333'}}>
+            브리핑
+          </button>
+          <button onClick={() => setView('news')}
+            style={{...pillStyle, background: view==='news' ? '#f59e0b' : '#e5e7eb', color: view==='news' ? '#fff' : '#333'}}>
+            뉴스 목록 ({news.length})
+          </button>
+        </div>
+        <button onClick={handleCollect} disabled={collecting}
+          style={{...pillStyle, background: collecting ? '#9ca3af' : '#10b981', color:'#fff'}}>
+          {collecting ? '수집 중...' : '수집 + 브리핑 생성'}
+        </button>
+      </div>
+
+      {collectResult && (
+        <div style={{padding:12,background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,marginBottom:16,fontSize:13}}>
+          {collectResult.error
+            ? `오류: ${collectResult.error}`
+            : `수집: ${collectResult.collected || 0}건, 저장: ${collectResult.saved || 0}건, 브리핑: ${collectResult.briefing || '-'}`
+          }
+        </div>
+      )}
+
+      {view === 'briefing' ? (
+        <div style={{display:'flex',gap:16}}>
+          <div style={{width:160,flexShrink:0}}>
+            <div style={{fontSize:13,fontWeight:600,color:'#6b7280',marginBottom:8}}>날짜별 브리핑</div>
+            {dates.map(d => (
+              <div key={d} onClick={() => setSelectedDate(d)}
+                style={{padding:'8px 12px',cursor:'pointer',borderRadius:8,marginBottom:4,fontSize:13,
+                  background: selectedDate===d ? '#fef3c7' : 'transparent',
+                  fontWeight: selectedDate===d ? 600 : 400,
+                  color: selectedDate===d ? '#92400e' : '#374151'}}>
+                {d}
+              </div>
+            ))}
+            {dates.length === 0 && <div style={{fontSize:12,color:'#9ca3af'}}>브리핑 없음</div>}
+          </div>
+          <div style={{flex:1,border:'1px solid #e5e7eb',borderRadius:12,overflow:'hidden'}}>
+            {briefingHtml ? (
+              <iframe srcDoc={briefingHtml} style={{width:'100%',height:'calc(100vh - 200px)',border:'none'}} />
+            ) : (
+              <div style={{padding:40,textAlign:'center',color:'#9ca3af'}}>날짜를 선택하세요</div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={{...thStyle,width:40}}>#</th>
+                <th style={thStyle}>제목</th>
+                <th style={{...thStyle,width:80}}>출처</th>
+                <th style={{...thStyle,width:90}}>날짜</th>
+              </tr>
+            </thead>
+            <tbody>
+              {news.map((n, i) => (
+                <tr key={i} style={trStyle}>
+                  <td style={{...tdStyle,textAlign:'center',color:'#9ca3af'}}>{i+1}</td>
+                  <td style={tdStyle}>
+                    <a href={n.link} target="_blank" rel="noopener" style={{color:'#2563eb',textDecoration:'none'}}>
+                      {n.title}
+                    </a>
+                    {n.description && <div style={{fontSize:12,color:'#9ca3af',marginTop:2}}>{n.description.slice(0,80)}</div>}
+                  </td>
+                  <td style={{...tdStyle,fontSize:12,color:'#6b7280'}}>{n.source}</td>
+                  <td style={{...tdStyle,fontSize:12,color:'#6b7280'}}>{n.pub_date}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {news.length === 0 && <div style={{padding:40,textAlign:'center',color:'#9ca3af'}}>수집된 뉴스가 없습니다. "수집 + 브리핑 생성" 버튼을 눌러주세요.</div>}
+        </div>
+      )}
     </div>
   )
 }
@@ -895,7 +1030,7 @@ function CoachingDashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.get('/coaching/today').then(d => { setData(d); setLoading(false) }).catch(e => { console.error(e); setLoading(false) })
+    api.get('/coaching/today').then(d => { const raw = d.data || d; console.log('COACHING:', raw.summary); setData(raw); setLoading(false) }).catch(e => { console.error(e); setLoading(false) })
   }, [])
 
   if (loading) return <div style={{padding:40,textAlign:'center',fontSize:18}}>코칭 데이터 로딩 중...</div>
@@ -1011,7 +1146,7 @@ function OpportunityDashboard() {
       api.get('/analysis/rpm-ranking'),
       api.get('/analysis/revenue-summary'),
     ]).then(([r, t, s, b, rpm, rev]) => {
-      setRewrite(r); setTopPages(t); setSeoOpp(s); setBlogEff(b); setRpmRanking(rpm||[]); setRevSummary(rev||[]); setLoading(false)
+      const g=x=>Array.isArray(x)?x:Array.isArray(x?.data)?x.data:[]; setRewrite(g(r)); setTopPages(g(t)); setSeoOpp(g(s)); setBlogEff(g(b)); setRpmRanking(g(rpm)); setRevSummary(g(rev)); setLoading(false)
     }).catch(e => { console.error(e); setLoading(false) })
   }, [])
 
@@ -1231,6 +1366,7 @@ function App() {
       {tab===5 && <SitesView/>}
       {tab===6 && <RewriteQueue/>}
       {tab===7 && <KeywordCheck/>}
+      {tab===8 && <SeniorWelfare/>}
     </div>
   )
 }

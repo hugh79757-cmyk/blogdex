@@ -408,6 +408,84 @@ def title_detail():
     })
 
 
+
+# ===== 노인복지 브리핑 =====
+SENIOR_BRIEFING_DIR = '/Users/twinssn/Projects/aikorea24/api_test/senior_briefing'
+
+@app.route('/senior/dates')
+def senior_dates():
+    """브리핑 날짜 목록"""
+    import glob
+    files = sorted(glob.glob(os.path.join(SENIOR_BRIEFING_DIR, '*.html')), reverse=True)
+    dates = [os.path.basename(f).replace('.html', '') for f in files if 'index' not in f]
+    return jsonify(dates)
+
+@app.route('/senior/briefing/<date>')
+def senior_briefing(date):
+    """특정 날짜 브리핑 HTML 반환"""
+    filepath = os.path.join(SENIOR_BRIEFING_DIR, f'{date}.html')
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'not found'}), 404
+    with open(filepath, 'r', encoding='utf-8') as f:
+        return f.read(), 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+@app.route('/senior/news')
+def senior_news():
+    """D1에서 senior 뉴스 직접 조회"""
+    import subprocess
+    try:
+        r = subprocess.run(
+            ['npx', 'wrangler', 'd1', 'execute', 'aikorea24-db', '--remote', '--json',
+             '--command', "SELECT title, description, link, source, pub_date FROM news WHERE category='senior' ORDER BY created_at DESC LIMIT 30"],
+            capture_output=True, text=True, cwd='/Users/twinssn/Projects/aikorea24', timeout=120)
+        if r.returncode == 0:
+            data = json.loads(r.stdout)
+            return jsonify(data[0].get('results', []))
+    except:
+        pass
+    return jsonify([])
+
+@app.route('/senior/collect', methods=['POST'])
+def senior_collect():
+    """노인복지 뉴스 수집 + 브리핑 생성"""
+    import subprocess
+    results = {}
+    # 수집
+    try:
+        r = subprocess.run(
+            ['/Users/twinssn/Projects/aikorea24/api_test/venv/bin/python3',
+             '-c', """
+import sys, os
+sys.path.insert(0, '/Users/twinssn/Projects/aikorea24/api_test')
+os.chdir('/Users/twinssn/Projects/aikorea24')
+exec(open('api_test/news_collector.py').read().split('def main')[0])
+items = fetch_senior_news()
+if items:
+    saved, skipped = save_to_d1(items)
+    print(f'{len(items)},{saved},{skipped}')
+else:
+    print('0,0,0')
+"""],
+            capture_output=True, text=True, timeout=120)
+        parts = r.stdout.strip().split('\n')[-1].split(',')
+        results['collected'] = int(parts[0]) if parts[0].isdigit() else 0
+        results['saved'] = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    except Exception as e:
+        results['error_collect'] = str(e)
+
+    # 브리핑 생성
+    try:
+        r2 = subprocess.run(
+            ['/Users/twinssn/Projects/aikorea24/api_test/venv/bin/python3',
+             '/Users/twinssn/Projects/aikorea24/api_test/senior_briefing.py'],
+            capture_output=True, text=True, timeout=180)
+        results['briefing'] = 'ok' if r2.returncode == 0 else r2.stderr[:200]
+    except Exception as e:
+        results['error_briefing'] = str(e)
+
+    return jsonify(results)
+
+
 if __name__ == '__main__':
     print("=" * 50)
     print("  Blogdex 로컬 API 서버")
