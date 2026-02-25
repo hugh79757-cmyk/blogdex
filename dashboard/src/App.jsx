@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import api from './api'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const tabs = ['오늘의 코칭', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크', '노인복지']
+const tabs = ['오늘의 코칭', '수익 분석', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크', '노인복지']
 
 const HIGH_PATTERNS = ['추천','비교','가격','후기','리뷰','순위','신청','방법','절차','가입','등록','발급','할인','쿠폰','무료','혜택','보험','대출','적금','투자','보조금','지원금','환급','세금','vs','차이','장단점','구매']
 const LOW_PATTERNS = ['뜻','의미','영어로','누구','나이','키','몸무게','생일','mbti','학력']
@@ -1343,6 +1343,170 @@ const tableStyle = {width:'100%',borderCollapse:'collapse',fontSize:13}
 const thStyle = {padding:'10px 12px',textAlign:'left',fontWeight:600,color:'#374151',borderBottom:'2px solid #e5e7eb'}
 const tdStyle = {padding:'8px 12px'}
 
+
+function PeriodReport() {
+  const [period, setPeriod] = useState(1)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const periods = [{days:1,label:'어제'},{days:3,label:'3일'},{days:7,label:'7일'},{days:30,label:'30일'}]
+
+  useEffect(() => { fetchData(period) }, [period])
+
+  const fetchData = async (days) => {
+    setLoading(true)
+    try {
+      const r = await api.get('/analysis/period-report', {params:{days,limit:20}})
+      setData(r.data)
+    } catch(e) { console.error(e) }
+    setLoading(false)
+  }
+
+  if (loading) return <div style={{padding:40,textAlign:'center',color:'#6b7280'}}>로딩 중...</div>
+  if (!data) return null
+
+  const fmt = (n) => typeof n === 'number' ? n.toLocaleString() : n
+  const fmtR = (n) => typeof n === 'number' ? '$' + n.toFixed(2) : n
+  const fmtRpm = (n) => typeof n === 'number' ? '$' + n.toFixed(2) : n
+  const shortUrl = (url) => {
+    try {
+      const u = new URL(url)
+      const p = decodeURIComponent(u.pathname)
+      return u.hostname.split('.')[0] + p.slice(0,35) + (p.length>35?'...':'')
+    } catch(e) { return url.slice(0,45) }
+  }
+
+  const t = data.totals || {}
+  const periodLabel = periods.find(p=>p.days===period)?.label || period+'일'
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:20,alignItems:'center'}}>
+        <span style={{fontSize:18,fontWeight:700}}>수익 분석</span>
+        <div style={{display:'flex',gap:4,marginLeft:16}}>
+          {periods.map(p=>(
+            <button key={p.days} onClick={()=>setPeriod(p.days)}
+              style={{...pillStyle, background:period===p.days?'#3b82f6':'#f3f4f6', color:period===p.days?'#fff':'#374151'}}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:24}}>
+        <div style={{background:'#eff6ff',borderRadius:12,padding:16,textAlign:'center'}}>
+          <div style={{fontSize:12,color:'#6b7280'}}>총 PV ({periodLabel})</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#1d4ed8'}}>{fmt(t.pv)}</div>
+        </div>
+        <div style={{background:'#f0fdf4',borderRadius:12,padding:16,textAlign:'center'}}>
+          <div style={{fontSize:12,color:'#6b7280'}}>총 수익 ({periodLabel})</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#16a34a'}}>{fmtR(t.revenue)}</div>
+        </div>
+        <div style={{background:'#fefce8',borderRadius:12,padding:16,textAlign:'center'}}>
+          <div style={{fontSize:12,color:'#6b7280'}}>평균 RPM</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#ca8a04'}}>{fmtRpm(t.rpm)}</div>
+        </div>
+        <div style={{background:'#faf5ff',borderRadius:12,padding:16,textAlign:'center'}}>
+          <div style={{fontSize:12,color:'#6b7280'}}>활성 사이트</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#7c3aed'}}>{t.sites}개</div>
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,marginBottom:24}}>
+        <div>
+          <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>사이트별 수익</h3>
+          <table style={tableStyle}>
+            <thead><tr>
+              <th style={thStyle}>사이트</th>
+              <th style={{...thStyle,textAlign:'right'}}>PV</th>
+              <th style={{...thStyle,textAlign:'right'}}>수익</th>
+              <th style={{...thStyle,textAlign:'right'}}>RPM</th>
+            </tr></thead>
+            <tbody>
+              {(data.site_summary||[]).map((s,i)=>(
+                <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+                  <td style={tdStyle}>{s.site}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmt(s.total_pv)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:'#16a34a',fontWeight:600}}>{fmtR(s.total_rev)}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmtRpm(s.total_pv>0?Math.round(s.total_rev/s.total_pv*1000*100)/100:0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>고RPM 페이지 (효율 상위)</h3>
+          <table style={tableStyle}>
+            <thead><tr>
+              <th style={thStyle}>페이지</th>
+              <th style={{...thStyle,textAlign:'right'}}>PV</th>
+              <th style={{...thStyle,textAlign:'right'}}>수익</th>
+              <th style={{...thStyle,textAlign:'right'}}>RPM</th>
+            </tr></thead>
+            <tbody>
+              {(data.high_rpm_pages||[]).map((p,i)=>(
+                <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+                  <td style={{...tdStyle,fontSize:12}} title={p.page}>{shortUrl(p.page)}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:'#16a34a',fontWeight:600}}>{fmtR(p.rev)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:'#ca8a04',fontWeight:600}}>{fmtRpm(p.rpm)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+        <div>
+          <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>수익 상위 페이지</h3>
+          <table style={tableStyle}>
+            <thead><tr>
+              <th style={thStyle}>페이지</th>
+              <th style={{...thStyle,textAlign:'right'}}>PV</th>
+              <th style={{...thStyle,textAlign:'right'}}>수익</th>
+              <th style={{...thStyle,textAlign:'right'}}>RPM</th>
+            </tr></thead>
+            <tbody>
+              {(data.top_revenue_pages||[]).map((p,i)=>(
+                <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+                  <td style={{...tdStyle,fontSize:12}} title={p.page}>{shortUrl(p.page)}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:'#16a34a',fontWeight:600}}>{fmtR(p.rev)}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmtRpm(p.rpm)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>트래픽 상위 페이지</h3>
+          <table style={tableStyle}>
+            <thead><tr>
+              <th style={thStyle}>페이지</th>
+              <th style={{...thStyle,textAlign:'right'}}>PV</th>
+              <th style={{...thStyle,textAlign:'right'}}>수익</th>
+              <th style={{...thStyle,textAlign:'right'}}>RPM</th>
+            </tr></thead>
+            <tbody>
+              {(data.top_pv_pages||[]).map((p,i)=>(
+                <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+                  <td style={{...tdStyle,fontSize:12}} title={p.page}>{shortUrl(p.page)}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:p.rev>0?'#16a34a':'#d1d5db'}}>{p.rev>0?fmtR(p.rev):'-'}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{p.rpm>0?fmtRpm(p.rpm):'-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 function App() {
   const [tab, setTab] = useState(0)
   return (
@@ -1359,14 +1523,15 @@ function App() {
         ))}
       </div>
       {tab===0 && <CoachingDashboard/>}
-      {tab===1 && <OpportunityDashboard/>}
-      {tab===2 && <TitleCrawler/>}
-      {tab===3 && <TitleManager/>}
-      {tab===4 && <KeywordsView/>}
-      {tab===5 && <SitesView/>}
-      {tab===6 && <RewriteQueue/>}
-      {tab===7 && <KeywordCheck/>}
-      {tab===8 && <SeniorWelfare/>}
+      {tab===1 && <PeriodReport/>}
+      {tab===2 && <OpportunityDashboard/>}
+      {tab===3 && <TitleCrawler/>}
+      {tab===4 && <TitleManager/>}
+      {tab===5 && <KeywordsView/>}
+      {tab===6 && <SitesView/>}
+      {tab===7 && <RewriteQueue/>}
+      {tab===8 && <KeywordCheck/>}
+      {tab===9 && <SeniorWelfare/>}
     </div>
   )
 }

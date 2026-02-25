@@ -16,8 +16,10 @@ PROPERTIES = {
     "502482181": "info.techpawz.com",
     # "437320334": "biz1.techpawz.com",  # 죽은 사이트, rotcha.kr과 중복
     "521925869": "biz.techpawz.com",
+    "440341812": "funstaurant.techpawz.com",
     "407323015": "rotcha.kr",
     "520232186": "hotissue.rotcha.kr",
+    "446560416": "kay.rotcha.kr",
     "407690954": "ji.rotcha.kr",
     "422161800": "hero.rotcha.kr",
     "428914171": "ri.rotcha.kr",

@@ -24,3 +24,5 @@ cli/snapshots/
 cli/coupang_data/
 cli/.env
 .DS_Store
+cli/logs/
+*.bak

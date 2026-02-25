@@ -41,10 +41,16 @@ export default {
 
       if (path === "/posts/search" && method === "GET") {
         const keyword = url.searchParams.get("q") || "";
+        const blogId = url.searchParams.get("blog_id") || "";
         const pattern = "%" + keyword + "%";
-        const { results } = await env.DB.prepare(
-          "SELECT p.*, b.name as blog_name, b.platform FROM my_posts p JOIN blogs b ON p.blog_id = b.id WHERE p.title LIKE ? OR p.keywords LIKE ? ORDER BY p.published_at DESC LIMIT 10000"
-        ).bind(pattern, pattern).all();
+        let sql = "SELECT p.*, b.name as blog_name, b.platform FROM my_posts p JOIN blogs b ON p.blog_id = b.id WHERE (p.title LIKE ? OR p.keywords LIKE ?)";
+        const binds = [pattern, pattern];
+        if (blogId) {
+          sql += " AND p.blog_id = ?";
+          binds.push(parseInt(blogId));
+        }
+        sql += " ORDER BY p.published_at DESC LIMIT 10000";
+        const { results } = await env.DB.prepare(sql).bind(...binds).all();
         return json({ results });
       }
 
@@ -733,6 +739,209 @@ export default {
         top_rpm_pages: topRpm,
         zero_revenue_sites: zeroRev,
       });
+    }
+
+    
+    // === sync_log 엔드포인트 ===
+    if (path === "/sync/log" && method === "POST") {
+      const body = await request.json();
+      const rows = body.logs || [body];
+      for (const log of rows) {
+        await env.DB.prepare(
+          "INSERT INTO sync_log (source, site, last_synced_at, last_date_covered, row_count, status, message) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).bind(
+          log.source, log.site || null, log.last_synced_at,
+          log.last_date_covered || null, log.row_count || 0,
+          log.status || "ok", log.message || null
+        ).run();
+      }
+      return json({ ok: true, count: rows.length });
+    }
+
+    if (path === "/sync/log" && method === "GET") {
+      const source = url.searchParams.get("source");
+      let query = "SELECT * FROM sync_log";
+      const params = [];
+      if (source) {
+        query += " WHERE source = ?";
+        params.push(source);
+      }
+      query += " ORDER BY last_synced_at DESC LIMIT 50";
+      const { results } = await env.DB.prepare(query).bind(...params).all();
+      return json(results);
+    }
+
+    if (path === "/sync/status" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT source, site, last_synced_at, last_date_covered, row_count, status
+         FROM sync_log
+         WHERE id IN (
+           SELECT MAX(id) FROM sync_log GROUP BY source, site
+         )
+         ORDER BY last_synced_at DESC`
+      ).all();
+      return json(results);
+    }
+
+    
+    // === 기간별 수익 분석 엔드포인트 ===
+    if (path === "/analysis/period-report" && method === "GET") {
+      const days = parseInt(url.searchParams.get("days") || "1");
+      const limit = parseInt(url.searchParams.get("limit") || "20");
+
+      // 기간 계산
+      const now = new Date();
+      const start = new Date(now);
+      start.setDate(start.getDate() - days);
+      const startStr = start.toISOString().slice(0, 10);
+
+      // 사이트별 요약
+      const { results: siteSummary } = await env.DB.prepare(
+        `SELECT site,
+                SUM(pageviews) as total_pv,
+                SUM(revenue) as total_rev,
+                COUNT(DISTINCT page) as pages,
+                COUNT(DISTINCT date) as days_active
+         FROM ga4_pageviews
+         WHERE date >= ?
+         GROUP BY site
+         ORDER BY total_rev DESC`
+      ).bind(startStr).all();
+
+      // 페이지별 상위 수익 (RPM 포함)
+      const { results: topPages } = await env.DB.prepare(
+        `SELECT site, page,
+                SUM(pageviews) as pv,
+                SUM(revenue) as rev,
+                ROUND(CASE WHEN SUM(pageviews) > 0 THEN SUM(revenue) * 1000.0 / SUM(pageviews) ELSE 0 END, 2) as rpm
+         FROM ga4_pageviews
+         WHERE date >= ? AND pageviews > 0
+         GROUP BY site, page
+         HAVING SUM(revenue) > 0
+         ORDER BY rev DESC
+         LIMIT ?`
+      ).bind(startStr, limit).all();
+
+      // 페이지별 상위 PV (수익 0 포함)
+      const { results: topPvPages } = await env.DB.prepare(
+        `SELECT site, page,
+                SUM(pageviews) as pv,
+                SUM(revenue) as rev,
+                ROUND(CASE WHEN SUM(pageviews) > 0 THEN SUM(revenue) * 1000.0 / SUM(pageviews) ELSE 0 END, 2) as rpm
+         FROM ga4_pageviews
+         WHERE date >= ? AND pageviews > 0
+         GROUP BY site, page
+         ORDER BY pv DESC
+         LIMIT ?`
+      ).bind(startStr, limit).all();
+
+      // 고RPM 페이지 (최소 PV 기준)
+      const minPv = days <= 1 ? 3 : days <= 3 ? 5 : days <= 7 ? 10 : 30;
+      const { results: highRpm } = await env.DB.prepare(
+        `SELECT site, page,
+                SUM(pageviews) as pv,
+                SUM(revenue) as rev,
+                ROUND(CASE WHEN SUM(pageviews) > 0 THEN SUM(revenue) * 1000.0 / SUM(pageviews) ELSE 0 END, 2) as rpm
+         FROM ga4_pageviews
+         WHERE date >= ? AND pageviews > 0
+         GROUP BY site, page
+         HAVING SUM(pageviews) >= ? AND SUM(revenue) > 0
+         ORDER BY rpm DESC
+         LIMIT ?`
+      ).bind(startStr, minPv, limit).all();
+
+      // 전체 합산
+      const totals = siteSummary.reduce((acc, s) => {
+        acc.pv += (s.total_pv || 0);
+        acc.rev += (s.total_rev || 0);
+        return acc;
+      }, { pv: 0, rev: 0 });
+
+      return json({
+        period: { days, start: startStr, end: now.toISOString().slice(0, 10) },
+        totals: {
+          pv: totals.pv,
+          revenue: Math.round(totals.rev * 100) / 100,
+          rpm: totals.pv > 0 ? Math.round(totals.rev / totals.pv * 1000 * 100) / 100 : 0,
+          sites: siteSummary.length
+        },
+        site_summary: siteSummary,
+        top_revenue_pages: topPages,
+        top_pv_pages: topPvPages,
+        high_rpm_pages: highRpm
+      });
+    }
+
+    
+    // === Bing 전용 엔드포인트 ===
+    if (path === "/bing/daily" && method === "POST") {
+      const body = await request.json();
+      const rows = body.rows || [body];
+      let count = 0;
+      for (const r of rows) {
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO bing_daily (site, date, clicks, impressions, account) VALUES (?, ?, ?, ?, ?)"
+        ).bind(r.site, r.date, r.clicks || 0, r.impressions || 0, r.account || null).run();
+        count++;
+      }
+      return json({ ok: true, count });
+    }
+
+    if (path === "/bing/daily" && method === "GET") {
+      const site = url.searchParams.get("site");
+      const days = parseInt(url.searchParams.get("days") || "30");
+      const start = new Date();
+      start.setDate(start.getDate() - days);
+      const startStr = start.toISOString().slice(0, 10);
+      let query = "SELECT * FROM bing_daily WHERE date >= ?";
+      const params = [startStr];
+      if (site) { query += " AND site = ?"; params.push(site); }
+      query += " ORDER BY date DESC, site";
+      const { results } = await env.DB.prepare(query).bind(...params).all();
+      return json(results);
+    }
+
+    if (path === "/bing/keywords" && method === "POST") {
+      const body = await request.json();
+      const rows = body.keywords || [body];
+      let count = 0;
+      for (const r of rows) {
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO bing_keywords (site, date, query, clicks, impressions, ctr, position, account) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(r.site, r.date, r.query, r.clicks || 0, r.impressions || 0, r.ctr || 0, r.position || 0, r.account || null).run();
+        count++;
+      }
+      return json({ ok: true, count });
+    }
+
+    if (path === "/bing/keywords" && method === "GET") {
+      const site = url.searchParams.get("site");
+      const days = parseInt(url.searchParams.get("days") || "30");
+      const limit = parseInt(url.searchParams.get("limit") || "100");
+      const start = new Date();
+      start.setDate(start.getDate() - days);
+      const startStr = start.toISOString().slice(0, 10);
+      let query = "SELECT site, query, SUM(clicks) as clicks, SUM(impressions) as impressions, ROUND(AVG(position),1) as position FROM bing_keywords WHERE date >= ?";
+      const params = [startStr];
+      if (site) { query += " AND site = ?"; params.push(site); }
+      query += " GROUP BY site, query ORDER BY impressions DESC LIMIT ?";
+      params.push(limit);
+      const { results } = await env.DB.prepare(query).bind(...params).all();
+      return json(results);
+    }
+
+    if (path === "/bing/summary" && method === "GET") {
+      const days = parseInt(url.searchParams.get("days") || "30");
+      const start = new Date();
+      start.setDate(start.getDate() - days);
+      const startStr = start.toISOString().slice(0, 10);
+      const { results: daily } = await env.DB.prepare(
+        "SELECT site, SUM(clicks) as clicks, SUM(impressions) as impressions FROM bing_daily WHERE date >= ? GROUP BY site ORDER BY impressions DESC"
+      ).bind(startStr).all();
+      const { results: kwCount } = await env.DB.prepare(
+        "SELECT COUNT(DISTINCT query) as cnt FROM bing_keywords WHERE date >= ?"
+      ).bind(startStr).all();
+      return json({ sites: daily, unique_keywords: kwCount[0]?.cnt || 0 });
     }
 
     return json({ error: "Not found" }, 404);
