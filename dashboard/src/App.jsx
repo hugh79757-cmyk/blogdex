@@ -1,3 +1,4 @@
+import React from 'react'
 import { useState, useEffect } from 'react'
 import api from './api'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -55,6 +56,39 @@ function StatCard({ label, value, color }) {
       <div style={{fontSize:13,color:'#6b7280',marginBottom:4}}>{label}</div>
       <div style={{fontSize:28,fontWeight:700,color:color||'#111'}}>{value}</div>
     </div>
+  )
+}
+
+// === 정렬 훅 ===
+function useSortable(data, defaultKey = null, defaultAsc = true) {
+  const [sortKey, setSortKey] = useState(defaultKey)
+  const [asc, setAsc] = useState(defaultAsc)
+  const sorted = React.useMemo(() => {
+    if (!sortKey || !data) return data || []
+    return [...data].sort((a, b) => {
+      let va = a[sortKey], vb = b[sortKey]
+      if (va == null) va = ''
+      if (vb == null) vb = ''
+      const na = typeof va === 'string' ? parseFloat(va.replace(/[^0-9.-]/g,'')) : va
+      const nb = typeof vb === 'string' ? parseFloat(vb.replace(/[^0-9.-]/g,'')) : vb
+      if (!isNaN(na) && !isNaN(nb)) return asc ? na - nb : nb - na
+      return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va))
+    })
+  }, [data, sortKey, asc])
+  const toggle = (key) => {
+    if (sortKey === key) setAsc(!asc)
+    else { setSortKey(key); setAsc(false) }
+  }
+  const indicator = (key) => sortKey === key ? (asc ? ' ▲' : ' ▼') : ' ⇅'
+  return { sorted, toggle, indicator }
+}
+
+function SortTh({ label, sortKey, toggle, indicator, style = {} }) {
+  return (
+    <th onClick={() => toggle(sortKey)}
+      style={{cursor:'pointer',userSelect:'none',padding:'8px 6px',textAlign:'left',borderBottom:'2px solid #e5e7eb',fontSize:12,whiteSpace:'nowrap',...style}}>
+      {label}{indicator(sortKey)}
+    </th>
   )
 }
 
@@ -1347,6 +1381,10 @@ const tdStyle = {padding:'8px 12px'}
 function PeriodReport() {
   const [period, setPeriod] = useState(1)
   const [data, setData] = useState(null)
+  const siteSort = useSortable(data?.site_summary,'total_rev',false)
+  const rpmSort = useSortable(data?.high_rpm_pages,'rpm',false)
+  const revSort = useSortable(data?.top_revenue_pages,'rev',false)
+  const pvSort = useSortable(data?.top_pv_pages,'pv',false)
   const [loading, setLoading] = useState(false)
   const periods = [{days:1,label:'어제'},{days:3,label:'3일'},{days:7,label:'7일'},{days:30,label:'30일'}]
 
@@ -1416,13 +1454,13 @@ function PeriodReport() {
           <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>사이트별 수익</h3>
           <table style={tableStyle}>
             <thead><tr>
-              <th style={thStyle}>사이트</th>
-              <th style={{...thStyle,textAlign:'right'}}>PV</th>
-              <th style={{...thStyle,textAlign:'right'}}>수익</th>
-              <th style={{...thStyle,textAlign:'right'}}>RPM</th>
+              <SortTh label="사이트" sortKey="site" toggle={siteSort.toggle} indicator={siteSort.indicator}/>
+              <SortTh label="PV" sortKey="total_pv" toggle={siteSort.toggle} indicator={siteSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="수익" sortKey="total_rev" toggle={siteSort.toggle} indicator={siteSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="RPM" sortKey="_rpm" toggle={siteSort.toggle} indicator={siteSort.indicator} style={{textAlign:'right'}}/>
             </tr></thead>
             <tbody>
-              {(data.site_summary||[]).map((s,i)=>(
+              {(siteSort.sorted||[]).map((s,i)=>(
                 <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
                   <td style={tdStyle}>{s.site}</td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmt(s.total_pv)}</td>
@@ -1438,13 +1476,13 @@ function PeriodReport() {
           <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>고RPM 페이지 (효율 상위)</h3>
           <table style={tableStyle}>
             <thead><tr>
-              <th style={thStyle}>페이지</th>
-              <th style={{...thStyle,textAlign:'right'}}>PV</th>
-              <th style={{...thStyle,textAlign:'right'}}>수익</th>
-              <th style={{...thStyle,textAlign:'right'}}>RPM</th>
+              <SortTh label="페이지" sortKey="page" toggle={rpmSort.toggle} indicator={rpmSort.indicator}/>
+              <SortTh label="PV" sortKey="pv" toggle={rpmSort.toggle} indicator={rpmSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="수익" sortKey="rev" toggle={rpmSort.toggle} indicator={rpmSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="RPM" sortKey="rpm" toggle={rpmSort.toggle} indicator={rpmSort.indicator} style={{textAlign:'right'}}/>
             </tr></thead>
             <tbody>
-              {(data.high_rpm_pages||[]).map((p,i)=>(
+              {(rpmSort.sorted||[]).map((p,i)=>(
                 <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
                   <td style={{...tdStyle,fontSize:12}} title={p.page}>{shortUrl(p.page)}</td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
@@ -1462,13 +1500,13 @@ function PeriodReport() {
           <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>수익 상위 페이지</h3>
           <table style={tableStyle}>
             <thead><tr>
-              <th style={thStyle}>페이지</th>
-              <th style={{...thStyle,textAlign:'right'}}>PV</th>
-              <th style={{...thStyle,textAlign:'right'}}>수익</th>
-              <th style={{...thStyle,textAlign:'right'}}>RPM</th>
+              <SortTh label="페이지" sortKey="page" toggle={revSort.toggle} indicator={revSort.indicator}/>
+              <SortTh label="PV" sortKey="pv" toggle={revSort.toggle} indicator={revSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="수익" sortKey="rev" toggle={revSort.toggle} indicator={revSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="RPM" sortKey="rpm" toggle={revSort.toggle} indicator={revSort.indicator} style={{textAlign:'right'}}/>
             </tr></thead>
             <tbody>
-              {(data.top_revenue_pages||[]).map((p,i)=>(
+              {(revSort.sorted||[]).map((p,i)=>(
                 <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
                   <td style={{...tdStyle,fontSize:12}} title={p.page}>{shortUrl(p.page)}</td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
@@ -1484,13 +1522,13 @@ function PeriodReport() {
           <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>트래픽 상위 페이지</h3>
           <table style={tableStyle}>
             <thead><tr>
-              <th style={thStyle}>페이지</th>
-              <th style={{...thStyle,textAlign:'right'}}>PV</th>
-              <th style={{...thStyle,textAlign:'right'}}>수익</th>
-              <th style={{...thStyle,textAlign:'right'}}>RPM</th>
+              <SortTh label="페이지" sortKey="page" toggle={pvSort.toggle} indicator={pvSort.indicator}/>
+              <SortTh label="PV" sortKey="pv" toggle={pvSort.toggle} indicator={pvSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="수익" sortKey="rev" toggle={pvSort.toggle} indicator={pvSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="RPM" sortKey="rpm" toggle={pvSort.toggle} indicator={pvSort.indicator} style={{textAlign:'right'}}/>
             </tr></thead>
             <tbody>
-              {(data.top_pv_pages||[]).map((p,i)=>(
+              {(pvSort.sorted||[]).map((p,i)=>(
                 <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
                   <td style={{...tdStyle,fontSize:12}} title={p.page}>{shortUrl(p.page)}</td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>

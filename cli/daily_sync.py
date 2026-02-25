@@ -82,7 +82,6 @@ SITES = [
 # GA4 속성
 GA4_PROPERTIES = {
     "407313218": "techpawz.com",
-    "502482181": "info.techpawz.com",
     "521925869": "biz.techpawz.com",
     "440341812": "funstaurant.techpawz.com",
     "407323015": "rotcha.kr",
@@ -104,6 +103,11 @@ GA4_PROPERTIES = {
     "520033547": "simprotection.informationhot.kr",
     "520495436": "tv-show.informationhot.kr",
     "489950024": "mimdiomcat.tistory.com",
+    "502880375": "2.techpawz.com",
+    "520459800": "travel.rotcha.kr",
+    "518592752": "zodiac.techpawz.com",
+    "515574149": "issue.techpawz.com",
+    "502581984": "info.techpawz.com",
     "407673873": "achaanstree.tistory.com",
     "407723312": "foodwater.tistory.com",
 }
