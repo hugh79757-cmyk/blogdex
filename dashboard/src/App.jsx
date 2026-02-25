@@ -276,11 +276,35 @@ function Dashboard() {
 function SitesView() {
   const [sites, setSites] = useState([])
   const [days, setDays] = useState(30)
+  const [selectedSite, setSelectedSite] = useState(null)
+  const [sitePages, setSitePages] = useState(null)
+  const [loadingPages, setLoadingPages] = useState(false)
   const { sortField, sortDir, onSort, sortData } = useSort('impressions')
+  const pageSort = useSortable(sitePages?.pages, 'pv', false)
 
   useEffect(() => {
     api.get('/gsc/sites?days=' + days).then(r => setSites(r.data))
+    setSelectedSite(null)
+    setSitePages(null)
   }, [days])
+
+  const openSiteDetail = async (site) => {
+    if (selectedSite === site) { setSelectedSite(null); setSitePages(null); return }
+    setSelectedSite(site)
+    setLoadingPages(true)
+    try {
+      const r = await api.get('/analysis/site-pages', {params:{site, days, limit:30}})
+      setSitePages(r.data)
+    } catch(e) { console.error(e); setSitePages(null) }
+    setLoadingPages(false)
+  }
+
+  const fmt = (n) => typeof n === 'number' ? n.toLocaleString() : n
+  const fmtR = (n) => typeof n === 'number' ? '$' + n.toFixed(2) : n
+  const shortPath = (url) => {
+    try { return decodeURIComponent(url).replace(/^\//, '').slice(0,50) + (url.length>50?'...':'') }
+    catch(e) { return url.slice(0,50) }
+  }
 
   return (
     <div>
@@ -315,12 +339,56 @@ function SitesView() {
             </thead>
             <tbody>
               {sortData(sites).map((s,i) => (
-                <tr key={i} style={{borderBottom:'1px solid #eee'}}>
-                  <td style={tdStyle}>{s.site}</td>
-                  <td style={{...tdStyle,textAlign:'right',color:'#10b981',fontWeight:600}}>{s.clicks}</td>
-                  <td style={{...tdStyle,textAlign:'right'}}>{s.impressions?.toLocaleString()}</td>
-                  <td style={{...tdStyle,textAlign:'right'}}>{s.ctr}%</td>
-                </tr>
+                <React.Fragment key={i}>
+                  <tr style={{borderBottom:'1px solid #eee',cursor:'pointer',background:selectedSite===s.site?'#eff6ff':'transparent'}}
+                      onClick={() => openSiteDetail(s.site)}>
+                    <td style={{...tdStyle,color:'#2563eb',fontWeight:selectedSite===s.site?700:400}}>
+                      {selectedSite===s.site ? '▼ ' : '▶ '}{s.site}
+                    </td>
+                    <td style={{...tdStyle,textAlign:'right',color:'#10b981',fontWeight:600}}>{s.clicks}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{s.impressions?.toLocaleString()}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{s.ctr}%</td>
+                  </tr>
+                  {selectedSite === s.site && (
+                    <tr><td colSpan={4} style={{padding:0}}>
+                      <div style={{background:'#f8fafc',padding:'12px 16px',borderBottom:'2px solid #e5e7eb'}}>
+                        {loadingPages ? (
+                          <div style={{textAlign:'center',color:'#6b7280',padding:20}}>페이지 로딩 중...</div>
+                        ) : sitePages && sitePages.pages ? (
+                          <div>
+                            <div style={{display:'flex',gap:16,marginBottom:12,fontSize:13}}>
+                              <span><b>총 PV:</b> {fmt(sitePages.total_pv)}</span>
+                              <span><b>총 수익:</b> {fmtR(sitePages.total_revenue)}</span>
+                              <span><b>페이지:</b> {sitePages.pages.length}개</span>
+                            </div>
+                            <table style={{...tableStyle,fontSize:12}}>
+                              <thead><tr>
+                                <th style={{padding:'6px 8px',textAlign:'center',borderBottom:'1px solid #e5e7eb',fontSize:11,width:30}}>#</th>
+                                <SortTh label="페이지" sortKey="page" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{fontSize:11}}/>
+                                <SortTh label="PV" sortKey="pv" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{textAlign:'right',fontSize:11}}/>
+                                <SortTh label="세션" sortKey="sessions" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{textAlign:'right',fontSize:11}}/>
+                                <SortTh label="수익" sortKey="revenue" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{textAlign:'right',fontSize:11}}/>
+                                <SortTh label="RPM" sortKey="rpm" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{textAlign:'right',fontSize:11}}/>
+                              </tr></thead>
+                              <tbody>
+                                {(pageSort.sorted||[]).map((p,j) => (
+                                  <tr key={j} style={{background:j%2?'#f1f5f9':'#fff'}}>
+                                    <td style={{padding:'4px 8px',textAlign:'center',color:'#9ca3af',fontSize:11}}>{j+1}</td>
+                                    <td style={{padding:'4px 8px',fontSize:11,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={p.page}>{shortPath(p.page)}</td>
+                                    <td style={{padding:'4px 8px',textAlign:'right',fontWeight:600}}>{fmt(p.pv)}</td>
+                                    <td style={{padding:'4px 8px',textAlign:'right'}}>{fmt(p.sessions)}</td>
+                                    <td style={{padding:'4px 8px',textAlign:'right',color:p.revenue>0?'#16a34a':'#d1d5db'}}>{p.revenue>0?fmtR(p.revenue):'-'}</td>
+                                    <td style={{padding:'4px 8px',textAlign:'right',color:p.rpm>0?'#ca8a04':'#d1d5db'}}>{p.rpm>0?'$'+p.rpm.toFixed(2):'-'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (<div style={{color:'#ef4444'}}>데이터 로드 실패</div>)}
+                      </div>
+                    </td></tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

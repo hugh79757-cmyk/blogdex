@@ -425,7 +425,8 @@ def sync_gsc():
                 keywords.append(kw)
                 d1_keyword_rows.append({
                     "site": name, "date": date_str,
-                    "query": kw["query"], "clicks": kw["clicks"],
+                    "query": kw["query"], "page": kw["page"],
+                    "clicks": kw["clicks"],
                     "impressions": kw["impressions"],
                     "ctr": kw["ctr"], "position": kw["position"]
                 })

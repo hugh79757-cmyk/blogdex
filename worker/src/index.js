@@ -944,6 +944,28 @@ export default {
       return json({ sites: daily, unique_keywords: kwCount[0]?.cnt || 0 });
     }
 
+
+    // === 사이트별 상위 페이지 ===
+    if (path === "/analysis/site-pages" && method === "GET") {
+      const site = url.searchParams.get("site");
+      const days = parseInt(url.searchParams.get("days") || "30");
+      const limit = parseInt(url.searchParams.get("limit") || "30");
+      if (!site) return json({ error: "site parameter required" }, 400);
+      const start = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT page, SUM(pageviews) as pv, SUM(sessions) as sessions, SUM(revenue) as revenue,
+           CASE WHEN SUM(pageviews) > 0 THEN ROUND(SUM(revenue) / SUM(pageviews) * 1000, 2) ELSE 0 END as rpm
+           FROM ga4_pageviews WHERE site = ? AND date >= ? GROUP BY page ORDER BY pv DESC LIMIT ?`
+        ).bind(site, start, limit).all();
+        const total_pv = results.reduce((a, r) => a + (r.pv || 0), 0);
+        const total_rev = results.reduce((a, r) => a + (r.revenue || 0), 0);
+        return json({ site, days, total_pv, total_revenue: Math.round(total_rev * 100) / 100, pages: results });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     return json({ error: "Not found" }, 404);
     } catch (e) {
       return json({ error: e.message }, 500);
