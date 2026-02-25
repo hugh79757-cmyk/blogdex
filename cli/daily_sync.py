@@ -77,6 +77,8 @@ SITES = [
     "https://mimdiomcat.tistory.com/",
     "https://foodwater.tistory.com/",
     "https://achaanstree.tistory.com/",
+    "https://aikorea24.kr/",
+    "https://cert.aikorea24.kr/",
 ]
 
 # GA4 속성
@@ -108,6 +110,8 @@ GA4_PROPERTIES = {
     "518592752": "zodiac.techpawz.com",
     "515574149": "issue.techpawz.com",
     "502581984": "info.techpawz.com",
+    "524828505": "cert.aikorea24.kr",
+    "524509961": "aikorea24.kr",
     "407673873": "achaanstree.tistory.com",
     "407723312": "foodwater.tistory.com",
 }
