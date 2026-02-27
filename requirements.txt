@@ -1,0 +1,15 @@
+requests
+rich
+python-dotenv
+flask
+flask-cors
+google-analytics-data
+google-analytics-admin
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+kiwipiepy
+openai
+httpx
+pyyaml

@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import api from './api'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const tabs = ['오늘의 코칭', '수익 분석', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크', '노인복지']
+const tabs = ['오늘의 코칭', '수익 분석', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크', '발행 배정', '노인복지']
 
 const HIGH_PATTERNS = ['추천','비교','가격','후기','리뷰','순위','신청','방법','절차','가입','등록','발급','할인','쿠폰','무료','혜택','보험','대출','적금','투자','보조금','지원금','환급','세금','vs','차이','장단점','구매']
 const LOW_PATTERNS = ['뜻','의미','영어로','누구','나이','키','몸무게','생일','mbti','학력']
@@ -1387,6 +1387,237 @@ function OpportunityDashboard() {
   </div>
 }
 
+
+const BLOG_CATEGORIES = {
+  '핫이슈 롯차 - 자동차': ['자동차','차량','SUV','세단','전기차','하이브리드','트림','연비','실구매가','시승','리콜','EV','볼보','BMW','벤츠','아우디','기아','현대','쉐보레','폭스바겐','지프','펠리세이드','셀토스','아반떼','쏘나타','투싼','산타페','스포티지','레니게이드','모하비'],
+  '캔들 트렌드 - 주식': ['주식','주가','투자','ETF','배당','금리','CMA','적금','펀드','코스피','코스닥','종목','시총','PER','매수','매도','물타기','평단가','KODEX','리츠','반도체','HBM','셀비온','테마주','증권사'],
+  '여행할 때는...': ['여행','호텔','숙소','리조트','온천','골프','CC','그린피','펜션','캠핑','관광','맛집여행','당일치기','스파','워터파크','해수욕장','계곡'],
+  'techpawz.com - 잡블로그': ['건강','의료','병원','치료','수술','보험적용','약','증상','질병','코골이','아토피','다이어트','운동','영양제','계산기','BMI','비만','체중'],
+  'kuta.informationhot.kr': ['생활','가전','가격비교','음식물처리기','공기청정기','에어컨','냉장고','세탁기','청소기','이케아','매장','매장안내','시험','자격증','공부법','대출','금융계산기','부동산','아파트','분양','청약'],
+  'informationhot.kr - 벤치마크': ['벤치마크','성능비교','스펙','노트북','스마트폰','태블릿','프로세서','그래픽카드'],
+  'biz techpawz - 인물 프로필': ['인물','프로필','나이','학력','경력','CEO','대표','연예인'],
+  'ud.informationhot.kr - hugh7973': ['정보','생활정보','꿀팁','신청방법','발급','등록','서비스'],
+  '이슈 테크포우즈 - 기술 블로그': ['AI','인공지능','ChatGPT','GPT','클라우드','코딩','프로그래밍','앱','소프트웨어','기술','IT','테크'],
+  '2.techpawz.com - 어르신 복지 혜택': ['노인','어르신','복지','연금','기초연금','요양','실버','경로'],
+  'aikorea24.kr - AI코리아24': ['AI뉴스','AI산업','AI정책'],
+  'rotcha-blog - 고객센터': ['고객센터','전화번호','AS','서비스센터','영업시간','예약','접수','상담']
+}
+
+function extractKeywords(title) {
+  return title.replace(/[^가-힣a-zA-Z0-9\s.]/g, ' ').split(/\s+/).filter(w => w.length >= 2)
+}
+
+function findBestBlog(title, exactDups, relatedDups) {
+  const titleLower = title.toLowerCase()
+  const words = extractKeywords(titleLower)
+  const scores = {}
+  const dupBlogs = new Set(exactDups.map(d => d.blog_name))
+  // 관련글이 있는 블로그는 오히려 주제 적합성 높음 → 가산점
+  const relatedBlogs = {}
+  for (const d of relatedDups) {
+    relatedBlogs[d.blog_name] = (relatedBlogs[d.blog_name] || 0) + 1
+  }
+
+  // 블로그 우선순위 (매칭 점수 동일 시 범용 블로그 우선)
+  const PRIORITY = {
+    'techpawz.com - 잡블로그': 5,
+    'kuta.informationhot.kr': 4,
+    'ud.informationhot.kr - hugh7973': 3,
+    'rotcha-blog - 고객센터': 2,
+    'informationhot.kr - 벤치마크': 1
+  }
+
+  for (const [blogName, keywords] of Object.entries(BLOG_CATEGORIES)) {
+    if (dupBlogs.has(blogName)) {
+      scores[blogName] = -1000
+      continue
+    }
+    let score = 0
+    for (const kw of keywords) {
+      const kwl = kw.toLowerCase()
+      // 타이틀 전체에서 카테고리 키워드 포함 여부 (부분 매칭)
+      if (titleLower.includes(kwl)) {
+        score += 20
+      } else {
+        for (const w of words) {
+          if (w === kwl || (w.length >= 3 && kwl.includes(w)) || (kwl.length >= 3 && w.includes(kwl))) {
+            score += 10
+          }
+        }
+      }
+    }
+    // 관련글 가산점 (해당 블로그에 같은 주제 글이 있으면 적합)
+    score += (relatedBlogs[blogName] || 0) * 15
+    // 우선순위 가산점 (동점 시 범용 블로그 선호)
+    score += (PRIORITY[blogName] || 0) * 0.1
+    scores[blogName] = score
+  }
+
+  const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1])
+  if (sorted.length > 0 && sorted[0][1] > 1) return { name: sorted[0][0], score: sorted[0][1], conflict: false }
+  // 매칭 점수 없으면 중복 없는 범용 블로그 중 우선순위 높은 곳
+  const fallback = ['techpawz.com - 잡블로그','kuta.informationhot.kr','ud.informationhot.kr - hugh7973','rotcha-blog - 고객센터','informationhot.kr - 벤치마크']
+  for (const fb of fallback) {
+    if (!dupBlogs.has(fb)) return { name: fb, score: 0, conflict: false }
+  }
+  return { name: '미정 (모든 블로그에 중복)', score: 0, conflict: true }
+}
+
+function PublishAssign() {
+  const [input, setInput] = useState('')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  const analyze = async () => {
+    const lines = input.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+    const titles = lines
+      .filter(l => !l.startsWith('📅') && !l.startsWith('🔷') && !l.startsWith('📝') && !l.startsWith('📂'))
+      .filter(l => !/^\d{4}-\d{2}-\d{2}/.test(l))
+      .map(l => l.replace(/^🆕\s*/, '').trim())
+      .filter(l => l.length > 5 && !/^[a-z0-9\-]+$/.test(l))
+
+    if (titles.length === 0) { alert('타이틀을 붙여넣어 주세요'); return }
+    setLoading(true)
+
+    const analyzed = []
+    for (const title of titles) {
+      // 타이틀에서 핵심 검색어 추출 (고유명사/브랜드 중심)
+      const STOP = new Set(['총정리','완벽','가이드','정리','분석','비교','추천','방법','사용법','활용법','확인','안내','소개','가격','성능','장단점','트림별','스펙','보조금','모델별','시험일정','공부법','구매','필수','리뷰','포토','입문','투자','사용','전략','시설','객실','코스','층별','방문','꿀팁','이용팁','전망','이유','핵심','모아보기','수익률','유형별','증권사별','프로모션','할인','실구매가','인하','달라진','기본','사양','무료','유료','플랜','사업','주가','계약포기','속출','세금','미리','확인하기','바로','궁금하면','심하다면','알아야','해결법','치료법','끝판왕','만원대','천만원대','이던','적용','보험','가능한','도전','내려온','서울','국내','대한민국','매일','사람','시대','까지','부터','때','전','후','대','중','수','년','월','일','것','위','곳','점','편','집','번','개','첫','근교','천연','잠잘','고는','팔기','살쪘는지','수입','전기','프로','실력','정보는','블로그','낮추기','올려온','1위의','진짜'])
+      // 복합 키워드 패턴 먼저 추출 (브랜드+모델 조합)
+      const compoundPatterns = [
+        /볼보\s*EX30/i, /BMW\s*M340i?/i, /기아\s*EV3/i, /폭스바겐\s*ID\.?4/i,
+        /KODEX\s*[가-힣]+/i, /CMA\s*금리/i, /ADsP/i, /BMI/i
+      ]
+      const searchTerms = []
+      for (const pat of compoundPatterns) {
+        const m = title.match(pat)
+        if (m) searchTerms.push(m[0].trim())
+      }
+      // 3글자 이상 고유명사 추출
+      const words = title.replace(/[^가-힣a-zA-Z0-9.\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3)
+      for (const w of words) {
+        if (!STOP.has(w) && !/^\d+$/.test(w) && !/^\d+만원/.test(w) && !/^\d+인승/.test(w)) {
+          searchTerms.push(w)
+        }
+      }
+      // 중복 제거 후 최대 2개만 검색 (가장 특이한 단어 우선 = 긴 순)
+      const uniqueTerms = [...new Set(searchTerms)].sort((a,b) => b.length - a.length).slice(0, 2)
+
+      let allDups = []
+      for (const term of uniqueTerms) {
+        try {
+          const res = await api.get('/posts/search?q=' + encodeURIComponent(term))
+          const found = res.data.results || []
+          allDups.push(...found)
+        } catch(e) { /* skip */ }
+      }
+
+      // 중복 제거 + 타이틀 유사도 필터 (검색 결과 중 실제 관련 있는 것만)
+      const seen = new Set()
+      const titleWords = new Set(title.replace(/[^가-힣a-zA-Z0-9]/g, ' ').split(/\s+/).filter(w => w.length >= 2))
+      const uniqueDups = allDups.filter(d => {
+        const key = d.blog_name + '::' + d.title
+        if (seen.has(key)) return false
+        seen.add(key)
+        // 검색 결과의 타이틀과 원본 타이틀 간 핵심 단어 2개 이상 겹쳐야 진짜 중복
+        const dWords = (d.title || '').replace(/[^가-힣a-zA-Z0-9]/g, ' ').split(/\s+/).filter(w => w.length >= 2)
+        let overlap = 0
+        for (const dw of dWords) {
+          if (titleWords.has(dw) && !STOP.has(dw)) overlap++
+        }
+        return overlap >= 2
+      })
+
+      // 중복을 "동일글(회피 대상)"과 "관련글(참고용)"로 분리
+      const exactDups = []  // 핵심 키워드 3개 이상 겹침 = 거의 같은 글
+      const relatedDups = [] // 핵심 키워드 2개 겹침 = 관련 글
+      for (const d of uniqueDups) {
+        const dWords = (d.title || '').replace(/[^가-힣a-zA-Z0-9]/g, ' ').split(/\s+/).filter(w => w.length >= 2)
+        const STOP2 = new Set(['총정리','완벽','가이드','정리','분석','비교','추천','방법','가격','성능','장단점','구매','필수','리뷰','포토','입문','투자','사용','전략','확인','안내','코스','방문','꿀팁','전망','할인','실구매가','사양','무료','유료','주가','세금'])
+        let overlap = 0
+        for (const dw of dWords) {
+          if (titleWords.has(dw) && !STOP2.has(dw)) overlap++
+        }
+        if (overlap >= 3) exactDups.push(d)
+        else relatedDups.push(d)
+      }
+      // 동일글이 있으면 "이미 발행됨"
+      if (exactDups.length > 0) {
+        const pubBlogs = [...new Set(exactDups.map(d => d.blog_name))].join(', ')
+        analyzed.push({ title, duplicates: uniqueDups, exactDups, relatedDups, recommend: { name: pubBlogs, score: -1, conflict: false, published: true } })
+      } else {
+        const best = findBestBlog(title, exactDups, relatedDups)
+        analyzed.push({ title, duplicates: uniqueDups, exactDups, relatedDups, recommend: best })
+      }
+    }
+
+    setResults(analyzed)
+    setLoading(false)
+  }
+
+  const dupColor = (count) => count === 0 ? '#065f46' : count <= 2 ? '#92400e' : '#991b1b'
+  const dupBg = (count) => count === 0 ? '#ecfdf5' : count <= 2 ? '#fef3c7' : '#fef2f2'
+
+  return (
+    <div>
+      <h3 style={{marginBottom:12}}>발행 배정</h3>
+      <p style={{color:'#666',fontSize:13,marginBottom:12}}>타이틀 목록을 붙여넣고 분석 버튼을 누르세요. 중복 체크 + 최적 블로그를 추천합니다.</p>
+      <textarea value={input} onChange={e=>setInput(e.target.value)}
+        placeholder={"타이틀을 한 줄에 하나씩 붙여넣기\n\n예:\n🆕 잠잘 때 코골이 심하다면 꼭 알아야 할 해결법 5가지\n🆕 폭스바겐 ID.4 가격 성능 완벽 분석"}
+        style={{width:'100%',minHeight:200,padding:12,fontSize:13,borderRadius:8,border:'1px solid #d1d5db',fontFamily:'monospace',resize:'vertical',boxSizing:'border-box'}} />
+      <div style={{display:'flex',gap:8,margin:'12px 0'}}>
+        <button onClick={analyze} disabled={loading}
+          style={{...btnStyle, opacity:loading?0.6:1}}>
+          {loading ? '분석 중...' : '분석 (' + input.split('\n').filter(l=>l.trim().length>5).length + '건)'}
+        </button>
+        {results.length > 0 && <button onClick={()=>{setResults([]);setInput('')}} style={{...btnStyle,background:'#6b7280'}}>초기화</button>}
+      </div>
+
+      {results.length > 0 && (
+        <div>
+          <div style={{padding:12,background:'#f0f9ff',borderRadius:8,marginBottom:16,fontSize:13,color:'#1e40af'}}>
+            총 {results.length}건 | ✅ 발행완료: {results.filter(r=>r.recommend.published).length}건 | 🆕 배정필요: {results.filter(r=>!r.recommend.published).length}건 | 그 중 신규: {results.filter(r=>!r.recommend.published && r.duplicates.length===0).length}건
+          </div>
+          <table style={tableStyle}>
+            <thead><tr style={{background:'#f8fafc'}}>
+              <th style={{...thStyle,width:'40%'}}>타이틀</th>
+              <th style={{...thStyle,width:'10%',textAlign:'center'}}>중복</th>
+              <th style={{...thStyle,width:'25%'}}>추천 블로그</th>
+              <th style={{...thStyle,width:'12%'}}>동일글</th>
+              <th style={{...thStyle,width:'13%'}}>관련글</th>
+            </tr></thead>
+            <tbody>{results.map((r,i)=>(
+              <tr key={i} style={{borderBottom:'1px solid #eee'}}>
+                <td style={{...tdStyle,fontSize:12}}>{r.title}</td>
+                <td style={{...tdStyle,textAlign:'center'}}>
+                  <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,
+                    color:dupColor(r.duplicates.length),background:dupBg(r.duplicates.length)}}>
+                    {r.duplicates.length === 0 ? '신규' : r.duplicates.length + '건'}
+                  </span>
+                </td>
+                <td style={{...tdStyle,fontSize:12,fontWeight:600,color:r.recommend.published?'#6b7280':r.recommend.score>0?'#2563eb':'#9ca3af'}}>
+                  {r.recommend.published ? '✅ ' + r.recommend.name : r.recommend.name}
+                  {r.recommend.conflict && <span style={{color:'#dc2626',marginLeft:4}}>⚠</span>}
+                </td>
+                <td style={{...tdStyle,fontSize:11,color:'#dc2626'}}>
+                  {(r.exactDups||[]).length > 0
+                    ? [...new Set(r.exactDups.map(d=>d.blog_name))].join(', ')
+                    : '-'}
+                </td>
+                <td style={{...tdStyle,fontSize:11,color:'#2563eb'}}>
+                  {(r.relatedDups||[]).length > 0
+                    ? [...new Set(r.relatedDups.map(d=>d.blog_name))].join(', ')
+                    : '-'}
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function KeywordCheck() {
   const [keyword, setKeyword] = useState('')
   const [results, setResults] = useState([])
@@ -1637,7 +1868,8 @@ function App() {
       {tab===6 && <SitesView/>}
       {tab===7 && <RewriteQueue/>}
       {tab===8 && <KeywordCheck/>}
-      {tab===9 && <SeniorWelfare/>}
+      {tab===9 && <PublishAssign/>}
+      {tab===10 && <SeniorWelfare/>}
     </div>
   )
 }

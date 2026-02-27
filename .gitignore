@@ -26,3 +26,4 @@ cli/.env
 .DS_Store
 cli/logs/
 *.bak
+*.DS_Store

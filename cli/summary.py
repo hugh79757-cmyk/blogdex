@@ -7,13 +7,20 @@ console = Console()
 
 def run():
     blogs = get("/blogs")
-    posts = get("/posts/search?q=")
+    if isinstance(blogs, dict):
+        blogs = blogs.get("results", blogs.get("blogs", []))
+
+    response = get("/posts/search", params={"q": ""})
+    if isinstance(response, dict):
+        posts = response.get("results", [])
+    else:
+        posts = response
 
     blog_counts = {}
     for p in posts:
-        name = p["blog_name"]
+        name = p.get("blog_name", "unknown")
         if name not in blog_counts:
-            blog_counts[name] = {"platform": p["platform"], "count": 0}
+            blog_counts[name] = {"platform": p.get("platform", ""), "count": 0}
         blog_counts[name]["count"] += 1
 
     table = Table(title="Blogdex 전체 현황", box=box.ROUNDED)
@@ -31,4 +38,3 @@ def run():
 
 if __name__ == "__main__":
     run()
-

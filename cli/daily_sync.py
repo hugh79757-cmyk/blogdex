@@ -606,6 +606,27 @@ def main():
         results["senior"] = {"status": "error", "message": str(e)}
         record_sync_log("senior", {"status": "error", "row_count": 0, "date": "N/A"})
 
+
+    # 포스트 동기화 (Hugo/Astro/WordPress/Blogger)
+    try:
+        from sync_hugo import run as sync_hugo_posts
+        from sync_astro import run as sync_astro_posts
+        from sync_wordpress import run as sync_wordpress_posts
+        from sync_blogger import run as sync_blogger_posts
+
+        log.info("포스트 동기화 시작 (Hugo/Astro/WordPress/Blogger)")
+        sync_hugo_posts()
+        sync_astro_posts()
+        sync_wordpress_posts()
+        sync_blogger_posts()
+        results["posts"] = {"status": "ok"}
+        record_sync_log("posts", {"status": "ok", "row_count": 0, "date": datetime.now().strftime("%Y-%m-%d")})
+        log.info("포스트 동기화 완료")
+    except Exception as e:
+        log.error(f"포스트 동기화 실패: {e}")
+        results["posts"] = {"status": "error", "message": str(e)}
+        record_sync_log("posts", {"status": "error", "row_count": 0, "date": "N/A"})
+
     # 소요 시간
     elapsed = (datetime.now() - start_time).total_seconds()
     log.info(f"완료: {elapsed:.1f}초 소요")

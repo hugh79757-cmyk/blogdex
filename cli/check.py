@@ -12,7 +12,12 @@ def run():
         return
 
     keyword = sys.argv[1]
-    results = get("/posts/search", params={"q": keyword})
+    response = get("/posts/search", params={"q": keyword})
+
+    if isinstance(response, dict):
+        results = response.get("results", [])
+    else:
+        results = response
 
     if not results:
         console.print(f"\n[bold green]'{keyword}' — 쓴 적 없음! 새로운 주제입니다.[/]")
@@ -26,10 +31,10 @@ def run():
 
     for r in results:
         table.add_row(
-            r["blog_name"][:15],
-            r["title"][:45],
-            (r["keywords"] or "")[:20],
-            r["published_at"] or ""
+            str(r.get("blog_name", ""))[:15],
+            str(r.get("title", ""))[:45],
+            str(r.get("keywords", "") or "")[:20],
+            str(r.get("published_at", "") or "")
         )
 
     console.print(table)
@@ -37,4 +42,3 @@ def run():
 
 if __name__ == "__main__":
     run()
-
