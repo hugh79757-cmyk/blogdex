@@ -11,6 +11,17 @@ import requests
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+# stdout/stderr 안전 처리 (대시보드 원격 실행 시 fd 없을 수 있음)
+try:
+    sys.stdout.fileno()
+except (OSError, AttributeError):
+    import io as _io
+    _fallback_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fallback.log")
+    _fh = open(_fallback_log, "a", encoding="utf-8")
+    sys.stdout = _fh
+    sys.stderr = _fh
+
+
 
 # 프로젝트 경로 설정
 PROJECT_DIR = Path(__file__).parent
