@@ -1446,8 +1446,8 @@ function findBestBlog(title, exactDups, relatedDups) {
         }
       }
     }
-    // 관련글 가산점 (해당 블로그에 같은 주제 글이 있으면 적합)
-    score += (relatedBlogs[blogName] || 0) * 15
+    // 관련글 감점 (같은 주제 글이 있으면 카니발라이제이션 위험)
+    score -= (relatedBlogs[blogName] || 0) * 15
     // 우선순위 가산점 (동점 시 범용 블로그 선호)
     score += (PRIORITY[blogName] || 0) * 0.1
     scores[blogName] = score
