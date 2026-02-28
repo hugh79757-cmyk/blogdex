@@ -1764,7 +1764,7 @@ function PeriodReport() {
             <tbody>
               {(siteSort.sorted||[]).map((s,i)=>(
                 <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
-                  <td style={tdStyle}>{s.site}</td>
+                  <td style={tdStyle}><a href={'https://'+s.site} target="_blank" rel="noreferrer" style={{color:'#2563eb',textDecoration:'none'}}>{s.site}</a></td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmt(s.total_pv)}</td>
                   <td style={{...tdStyle,textAlign:'right',color:'#16a34a',fontWeight:600}}>{fmtR(s.total_rev)}</td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmtRpm(s.total_pv>0?Math.round(s.total_rev/s.total_pv*1000*100)/100:0)}</td>
@@ -1786,7 +1786,7 @@ function PeriodReport() {
             <tbody>
               {(rpmSort.sorted||[]).map((p,i)=>(
                 <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
-                  <td style={{...tdStyle,fontSize:12}} title={p.page}>{shortUrl(p.page)}</td>
+                  <td style={{...tdStyle,fontSize:12}} title={p.page}><a href={p.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',textDecoration:'none'}}>{shortUrl(p.page)}</a></td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
                   <td style={{...tdStyle,textAlign:'right',color:'#16a34a',fontWeight:600}}>{fmtR(p.rev)}</td>
                   <td style={{...tdStyle,textAlign:'right',color:'#ca8a04',fontWeight:600}}>{fmtRpm(p.rpm)}</td>
@@ -1810,7 +1810,7 @@ function PeriodReport() {
             <tbody>
               {(revSort.sorted||[]).map((p,i)=>(
                 <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
-                  <td style={{...tdStyle,fontSize:12}} title={p.page}>{shortUrl(p.page)}</td>
+                  <td style={{...tdStyle,fontSize:12}} title={p.page}><a href={p.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',textDecoration:'none'}}>{shortUrl(p.page)}</a></td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
                   <td style={{...tdStyle,textAlign:'right',color:'#16a34a',fontWeight:600}}>{fmtR(p.rev)}</td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmtRpm(p.rpm)}</td>
@@ -1832,7 +1832,7 @@ function PeriodReport() {
             <tbody>
               {(pvSort.sorted||[]).map((p,i)=>(
                 <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
-                  <td style={{...tdStyle,fontSize:12}} title={p.page}>{shortUrl(p.page)}</td>
+                  <td style={{...tdStyle,fontSize:12}} title={p.page}><a href={p.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',textDecoration:'none'}}>{shortUrl(p.page)}</a></td>
                   <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
                   <td style={{...tdStyle,textAlign:'right',color:p.rev>0?'#16a34a':'#d1d5db'}}>{p.rev>0?fmtR(p.rev):'-'}</td>
                   <td style={{...tdStyle,textAlign:'right'}}>{p.rpm>0?fmtRpm(p.rpm):'-'}</td>
