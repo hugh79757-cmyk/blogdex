@@ -1541,13 +1541,13 @@ function PublishAssign() {
         if (overlap >= 3) exactDups.push(d)
         else relatedDups.push(d)
       }
-      // 동일글이 있으면 "이미 발행됨"
+      // 동일글 유무와 관계없이 항상 최적 블로그 추천
+      const best = findBestBlog(title, exactDups, relatedDups)
       if (exactDups.length > 0) {
-        const pubBlogs = [...new Set(exactDups.map(d => d.blog_name))].join(', ')
-        analyzed.push({ title, duplicates: uniqueDups, exactDups, relatedDups, recommend: { name: pubBlogs, score: -1, conflict: false, published: true } })
+        const pubBlogs = [...new Set(exactDups.map(d => d.blog_name))]
+        analyzed.push({ title, duplicates: uniqueDups, exactDups, relatedDups, recommend: best, publishedIn: pubBlogs })
       } else {
-        const best = findBestBlog(title, exactDups, relatedDups)
-        analyzed.push({ title, duplicates: uniqueDups, exactDups, relatedDups, recommend: best })
+        analyzed.push({ title, duplicates: uniqueDups, exactDups, relatedDups, recommend: best, publishedIn: [] })
       }
     }
 
@@ -1576,7 +1576,7 @@ function PublishAssign() {
       {results.length > 0 && (
         <div>
           <div style={{padding:12,background:'#f0f9ff',borderRadius:8,marginBottom:16,fontSize:13,color:'#1e40af'}}>
-            총 {results.length}건 | ✅ 발행완료: {results.filter(r=>r.recommend.published).length}건 | 🆕 배정필요: {results.filter(r=>!r.recommend.published).length}건 | 그 중 신규: {results.filter(r=>!r.recommend.published && r.duplicates.length===0).length}건
+            총 {results.length}건 | ✅ 발행완료: {results.filter(r=>r.publishedIn.length>0).length}건 | 🆕 배정필요: {results.filter(r=>r.publishedIn.length===0).length}건 | 그 중 신규: {results.filter(r=>r.publishedIn.length===0 && r.duplicates.length===0).length}건
           </div>
           <table style={tableStyle}>
             <thead><tr style={{background:'#f8fafc'}}>
@@ -1595,9 +1595,12 @@ function PublishAssign() {
                     {r.duplicates.length === 0 ? '신규' : r.duplicates.length + '건'}
                   </span>
                 </td>
-                <td style={{...tdStyle,fontSize:12,fontWeight:600,color:r.recommend.published?'#6b7280':r.recommend.score>0?'#2563eb':'#9ca3af'}}>
-                  {r.recommend.published ? '✅ ' + r.recommend.name : r.recommend.name}
-                  {r.recommend.conflict && <span style={{color:'#dc2626',marginLeft:4}}>⚠</span>}
+                <td style={{...tdStyle,fontSize:12}}>
+                  {r.publishedIn.length > 0 && <div style={{color:'#6b7280',marginBottom:2}}>✅ {r.publishedIn.join(', ')}</div>}
+                  <div style={{fontWeight:600,color:r.recommend.score>0?'#2563eb':'#9ca3af'}}>
+                    {r.publishedIn.length > 0 ? '→ ' : ''}{r.recommend.name}
+                    {r.recommend.conflict && <span style={{color:'#dc2626',marginLeft:4}}>⚠</span>}
+                  </div>
                 </td>
                 <td style={{...tdStyle,fontSize:11,color:'#dc2626'}}>
                   {(r.exactDups||[]).length > 0
