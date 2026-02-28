@@ -491,7 +491,7 @@ export default {
 
       // 2) 사이트별 수익 요약
       const { results: siteRev } = await env.DB.prepare(
-        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev, COUNT(DISTINCT page) as pages, COUNT(DISTINCT date) as days FROM ga4_pageviews WHERE revenue > 0 OR pageviews > 0 GROUP BY site ORDER BY rev DESC"
+        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev, COUNT(DISTINCT page) as pages, COUNT(DISTINCT date) as days FROM ga4_pageviews WHERE date >= date('now', '-30 days') AND (revenue > 0 OR pageviews > 0) GROUP BY site ORDER BY rev DESC"
       ).all();
 
       // 3) 어제 vs 그저께 비교 (사이트별)
@@ -510,16 +510,19 @@ export default {
 
       // 4) 타이틀 리라이트 대상 TOP 10
       const { results: rewriteTargets } = await env.DB.prepare(
-        "SELECT site, query, page, SUM(impressions) as imp, ROUND(AVG(position),1) as pos FROM gsc_keywords WHERE page != '' AND impressions >= 3 GROUP BY site, query, page HAVING SUM(clicks) = 0 AND AVG(position) BETWEEN 3 AND 25 ORDER BY imp DESC LIMIT 10"
+        "SELECT site, query, page, SUM(impressions) as imp, ROUND(AVG(position),1) as pos FROM gsc_keywords WHERE date >= date('now', '-30 days') AND page != '' AND impressions >= 3 GROUP BY site, query, page HAVING SUM(clicks) = 0 AND AVG(position) BETWEEN 3 AND 25 ORDER BY imp DESC LIMIT 10"
       ).all();
 
       // 5) RPM 상위 키워드 (경쟁사 리서치 가이드용)
       const { results: topRpm } = await env.DB.prepare(
-        "SELECT g.site, g.page, SUM(g.pageviews) as pv, SUM(g.revenue) as rev, ROUND(SUM(g.revenue)/SUM(g.pageviews)*1000,2) as rpm FROM ga4_pageviews g WHERE g.pageviews >= 5 AND g.revenue > 0 GROUP BY g.site, g.page ORDER BY rpm DESC LIMIT 10"
+        "SELECT g.site, g.page, SUM(g.pageviews) as pv, SUM(g.revenue) as rev, ROUND(SUM(g.revenue)/SUM(g.pageviews)*1000,2) as rpm FROM ga4_pageviews g WHERE g.date >= date('now', '-30 days') AND g.pageviews >= 5 AND g.revenue > 0 GROUP BY g.site, g.page ORDER BY rpm DESC LIMIT 10"
       ).all();
 
-      // 6) 수익 0 사이트 (설정 문제)
-      const zeroRev = siteRev.filter(s => s.pv >= 100 && s.rev === 0);
+      // 6) 수익 0 사이트 (최근 7일 기준)
+      const { results: recent7d } = await env.DB.prepare(
+        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date >= date('now', '-7 days') GROUP BY site HAVING pv >= 50 AND rev = 0"
+      ).all();
+      const zeroRev = recent7d;
 
       // 목표 계산
       const thisMonth = dailyRev.filter(d => d.date.startsWith(dates[0]?.substring(0,7) || ''));
@@ -684,7 +687,7 @@ export default {
 
       // 2) 사이트별 수익 요약
       const { results: siteRev } = await env.DB.prepare(
-        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev, COUNT(DISTINCT page) as pages, COUNT(DISTINCT date) as days FROM ga4_pageviews WHERE revenue > 0 OR pageviews > 0 GROUP BY site ORDER BY rev DESC"
+        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev, COUNT(DISTINCT page) as pages, COUNT(DISTINCT date) as days FROM ga4_pageviews WHERE date >= date('now', '-30 days') AND (revenue > 0 OR pageviews > 0) GROUP BY site ORDER BY rev DESC"
       ).all();
 
       // 3) 어제 vs 그저께 비교 (사이트별)
@@ -703,16 +706,19 @@ export default {
 
       // 4) 타이틀 리라이트 대상 TOP 10
       const { results: rewriteTargets } = await env.DB.prepare(
-        "SELECT site, query, page, SUM(impressions) as imp, ROUND(AVG(position),1) as pos FROM gsc_keywords WHERE page != '' AND impressions >= 3 GROUP BY site, query, page HAVING SUM(clicks) = 0 AND AVG(position) BETWEEN 3 AND 25 ORDER BY imp DESC LIMIT 10"
+        "SELECT site, query, page, SUM(impressions) as imp, ROUND(AVG(position),1) as pos FROM gsc_keywords WHERE date >= date('now', '-30 days') AND page != '' AND impressions >= 3 GROUP BY site, query, page HAVING SUM(clicks) = 0 AND AVG(position) BETWEEN 3 AND 25 ORDER BY imp DESC LIMIT 10"
       ).all();
 
       // 5) RPM 상위 키워드 (경쟁사 리서치 가이드용)
       const { results: topRpm } = await env.DB.prepare(
-        "SELECT g.site, g.page, SUM(g.pageviews) as pv, SUM(g.revenue) as rev, ROUND(SUM(g.revenue)/SUM(g.pageviews)*1000,2) as rpm FROM ga4_pageviews g WHERE g.pageviews >= 5 AND g.revenue > 0 GROUP BY g.site, g.page ORDER BY rpm DESC LIMIT 10"
+        "SELECT g.site, g.page, SUM(g.pageviews) as pv, SUM(g.revenue) as rev, ROUND(SUM(g.revenue)/SUM(g.pageviews)*1000,2) as rpm FROM ga4_pageviews g WHERE g.date >= date('now', '-30 days') AND g.pageviews >= 5 AND g.revenue > 0 GROUP BY g.site, g.page ORDER BY rpm DESC LIMIT 10"
       ).all();
 
-      // 6) 수익 0 사이트 (설정 문제)
-      const zeroRev = siteRev.filter(s => s.pv >= 100 && s.rev === 0);
+      // 6) 수익 0 사이트 (최근 7일 기준)
+      const { results: recent7d } = await env.DB.prepare(
+        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date >= date('now', '-7 days') GROUP BY site HAVING pv >= 50 AND rev = 0"
+      ).all();
+      const zeroRev = recent7d;
 
       // 목표 계산
       const thisMonth = dailyRev.filter(d => d.date.startsWith(dates[0]?.substring(0,7) || ''));
