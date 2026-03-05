@@ -70,10 +70,10 @@ def generate_titles(keyword, context):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5-nano",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.8,
-            max_tokens=500,
+            max_completion_tokens=500,
         )
         text = response.choices[0].message.content.strip()
         titles = []
@@ -113,10 +113,10 @@ def rewrite_title(original_title, keyword, gsc_data):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5-nano",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
-            max_tokens=500,
+            max_completion_tokens=500,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
