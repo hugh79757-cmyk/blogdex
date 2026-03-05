@@ -70,7 +70,7 @@ def generate_titles(keyword, context):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5-nano",
+            model="gpt-5-nano", reasoning_effort="minimal",
             messages=[{"role": "user", "content": prompt}],
             
             max_completion_tokens=500,
@@ -113,7 +113,7 @@ def rewrite_title(original_title, keyword, gsc_data):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5-nano",
+            model="gpt-5-nano", reasoning_effort="minimal",
             messages=[{"role": "user", "content": prompt}],
             
             max_completion_tokens=500,
