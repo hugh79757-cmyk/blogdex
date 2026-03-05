@@ -72,7 +72,7 @@ def generate_titles(keyword, context):
         response = client.chat.completions.create(
             model="gpt-5-nano",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.8,
+            
             max_completion_tokens=500,
         )
         text = response.choices[0].message.content.strip()
@@ -115,7 +115,7 @@ def rewrite_title(original_title, keyword, gsc_data):
         response = client.chat.completions.create(
             model="gpt-5-nano",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
+            
             max_completion_tokens=500,
         )
         return response.choices[0].message.content.strip()
