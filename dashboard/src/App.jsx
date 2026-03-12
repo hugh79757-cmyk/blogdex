@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import api from './api'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const tabs = ['오늘의 코칭', '수익 분석', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크', '발행 배정', '노인복지']
+const tabs = ['오늘의 코칭', '수익 분석', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크', '발행 배정', '스카우트', '노인복지']
 
 const HIGH_PATTERNS = ['추천','비교','가격','후기','리뷰','순위','신청','방법','절차','가입','등록','발급','할인','쿠폰','무료','혜택','보험','대출','적금','투자','보조금','지원금','환급','세금','vs','차이','장단점','구매']
 const LOW_PATTERNS = ['뜻','의미','영어로','누구','나이','키','몸무게','생일','mbti','학력']
@@ -573,6 +573,10 @@ function TitleManager() {
   const [input, setInput] = useState('')
   const [titles, setTitles] = useState([])
   const [bulk, setBulk] = useState('')
+  const [scoutKeyword, setScoutKeyword] = useState('')
+  const [scoutResults, setScoutResults] = useState([])
+  const [scoutLoading, setScoutLoading] = useState(false)
+  const [scoutSaved, setScoutSaved] = useState(0)
   const [dragOver, setDragOver] = useState(false)
   const [csvLog, setCsvLog] = useState([])
   const [analyzing, setAnalyzing] = useState(false)
@@ -652,6 +656,28 @@ function TitleManager() {
       setTitles([])
     } catch(e) { alert('저장 실패') }
   }
+  const runScout = async () => {
+    if (!scoutKeyword.trim()) return
+    setScoutLoading(true)
+    setScoutResults([])
+    setScoutSaved(0)
+    try {
+      const res = await api.get('/scout', { params: { q: scoutKeyword.trim(), display: 10 } })
+      const items = (res.data.items || []).map(item => ({
+        title: item.title.replace(/<[^>]+>/g, ''),
+        link: item.link,
+        bloggername: (item.bloggername || '').replace(/<[^>]+>/g, ''),
+        postdate: item.postdate,
+        description: (item.description || '').replace(/<[^>]+>/g, '').slice(0, 100)
+      }))
+      setScoutResults(items)
+      setScoutSaved(items.length)
+    } catch (e) {
+      console.error('Scout error:', e)
+    }
+    setScoutLoading(false)
+  }
+
   const addBulk = () => {
     const lines = bulk.split('\n').map(l => l.trim()).filter(l => l.length > 0)
     if (lines.length > 0) { setTitles([...titles, ...lines]); setBulk(''); setCsvLog(prev => [...prev, lines.length + '건 추가']) }
@@ -979,17 +1005,29 @@ function TitleManager() {
       {detail && (
         <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:999}} onClick={()=>setDetail(null)}>
           <div style={{background:'#fff',borderRadius:16,padding:24,maxWidth:700,width:'90%',maxHeight:'80vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:16}}>
-              <h3 style={{margin:0}}>{detail.title?.title||''}</h3>
-              {detail.keywords && detail.keywords.length > 0 && (
-                <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:8}}>
-                  {detail.keywords.map((kw,i) => (
-                    <span key={i} style={{padding:'2px 8px',borderRadius:10,fontSize:11,background:'#eff6ff',color:'#2563eb'}}>{kw}</span>
-                  ))}
-                </div>
-              )}
-              <button onClick={()=>setDetail(null)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer'}}>x</button>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
+              <h3 style={{margin:0,flex:1}}>{detail.title?.title||''}</h3>
+              <button onClick={()=>setDetail(null)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',marginLeft:8}}>x</button>
             </div>
+            <div style={{background:'#f8fafc',border:'1px solid #e5e7eb',borderRadius:8,padding:12,marginBottom:16,fontSize:12}}>
+              <div style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:'6px 12px'}}>
+                <span style={{color:'#6b7280',fontWeight:600}}>원문 링크</span>
+                <span>{detail.title?.url ? <a href={detail.title.url} target="_blank" rel="noreferrer" style={{color:'#2563eb',wordBreak:'break-all'}}>{detail.title.url}</a> : <span style={{color:'#9ca3af'}}>없음</span>}</span>
+                <span style={{color:'#6b7280',fontWeight:600}}>출처</span>
+                <span style={{color:'#374151'}}>{detail.title?.source || '-'}</span>
+                <span style={{color:'#6b7280',fontWeight:600}}>수집일</span>
+                <span style={{color:'#374151'}}>{detail.title?.created_at ? detail.title.created_at.slice(0,16).replace('T',' ') : '-'}</span>
+                <span style={{color:'#6b7280',fontWeight:600}}>상태</span>
+                <span style={{color:'#374151'}}>{detail.title?.status || '-'}</span>
+              </div>
+            </div>
+            {detail.keywords && detail.keywords.length > 0 && (
+              <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:12}}>
+                {detail.keywords.map((kw,i) => (
+                  <span key={i} style={{padding:'2px 8px',borderRadius:10,fontSize:11,background:'#eff6ff',color:'#2563eb'}}>{kw}</span>
+                ))}
+              </div>
+            )}
             {detail.related_posts?.length > 0 && (
               <div style={{marginBottom:16}}>
                 <h4 style={{marginBottom:8,color:'#374151'}}>발행된 관련 글</h4>
@@ -1847,6 +1885,89 @@ function PeriodReport() {
 }
 
 
+function ScoutTab() {
+  const [keyword, setKeyword] = useState('')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [saved, setSaved] = useState(0)
+  const [history, setHistory] = useState([])
+
+  const runScout = async () => {
+    if (!keyword.trim()) return
+    setLoading(true)
+    setResults([])
+    setSaved(0)
+    try {
+      const res = await api.get('/scout', { params: { q: keyword.trim(), display: 10 } })
+      const items = (res.data.items || []).map(item => ({
+        title: item.title.replace(/<[^>]+>/g, ''),
+        link: item.link,
+        bloggername: (item.bloggername || '').replace(/<[^>]+>/g, ''),
+        postdate: item.postdate,
+        description: (item.description || '').replace(/<[^>]+>/g, '').slice(0, 120)
+      }))
+      setResults(items)
+      setSaved(items.length)
+      setHistory(prev => [keyword.trim(), ...prev.filter(h => h !== keyword.trim())].slice(0, 20))
+    } catch (e) {
+      console.error('Scout error:', e)
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{maxWidth:900,margin:'0 auto'}}>
+      <h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>키워드 스카우트</h2>
+      <p style={{fontSize:13,color:'#6b7280',marginBottom:16}}>네이버 블로그 상위 글을 검색하고 D1에 자동 저장합니다</p>
+      <div style={{display:'flex',gap:8,marginBottom:12}}>
+        <input value={keyword} onChange={e=>setKeyword(e.target.value)}
+          onKeyDown={e=>e.key==='Enter'&&runScout()}
+          placeholder="검색 키워드 입력 (예: 벚꽃 명소, 전세 사기 예방)"
+          style={{flex:1,padding:'10px 14px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14}}/>
+        <button onClick={runScout} disabled={loading}
+          style={{padding:'10px 20px',background:'#2563eb',color:'#fff',border:'none',borderRadius:8,fontSize:14,cursor:'pointer',opacity:loading?0.6:1,whiteSpace:'nowrap'}}>
+          {loading ? '검색 중...' : '스카우트'}
+        </button>
+      </div>
+      {history.length > 0 && (
+        <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:12}}>
+          {history.map((h,i) => (
+            <button key={i} onClick={()=>{setKeyword(h)}}
+              style={{padding:'4px 10px',fontSize:12,borderRadius:6,border:'1px solid #e5e7eb',background:'#f9fafb',cursor:'pointer',color:'#374151'}}>
+              {h}
+            </button>
+          ))}
+        </div>
+      )}
+      {saved > 0 && <div style={{fontSize:13,color:'#16a34a',marginBottom:12,padding:'8px 12px',background:'#f0fdf4',borderRadius:8}}>D1 저장 완료: {saved}개</div>}
+      {results.length > 0 && (
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+          <thead><tr style={{background:'#f0f9ff'}}>
+            <th style={{padding:'8px 10px',textAlign:'left',borderBottom:'2px solid #e5e7eb',width:30}}>#</th>
+            <th style={{padding:'8px 10px',textAlign:'left',borderBottom:'2px solid #e5e7eb'}}>제목</th>
+            <th style={{padding:'8px 10px',textAlign:'left',borderBottom:'2px solid #e5e7eb',width:140}}>블로거</th>
+            <th style={{padding:'8px 10px',textAlign:'left',borderBottom:'2px solid #e5e7eb',width:90}}>날짜</th>
+          </tr></thead>
+          <tbody>{results.map((r,i) => (
+            <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
+              <td style={{padding:'8px 10px',color:'#9ca3af'}}>{i+1}</td>
+              <td style={{padding:'8px 10px'}}>
+                <a href={r.link} target="_blank" rel="noreferrer" style={{color:'#2563eb',textDecoration:'none',fontWeight:500}}>{r.title}</a>
+                <div style={{fontSize:11,color:'#9ca3af',marginTop:2}}>{r.description}...</div>
+              </td>
+              <td style={{padding:'8px 10px',color:'#6b7280',fontSize:12}}>{r.bloggername}</td>
+              <td style={{padding:'8px 10px',color:'#6b7280',fontSize:12}}>{r.postdate ? r.postdate.slice(0,4)+'-'+r.postdate.slice(4,6)+'-'+r.postdate.slice(6) : '-'}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      {results.length === 0 && !loading && (
+        <div style={{textAlign:'center',padding:48,color:'#9ca3af',fontSize:14}}>키워드를 입력하고 스카우트 버튼을 클릭하세요</div>
+      )}
+    </div>
+  )
+}
+
 function App() {
   const [tab, setTab] = useState(0)
   return (
@@ -1872,7 +1993,8 @@ function App() {
       {tab===7 && <RewriteQueue/>}
       {tab===8 && <KeywordCheck/>}
       {tab===9 && <PublishAssign/>}
-      {tab===10 && <SeniorWelfare/>}
+      {tab===10 && <ScoutTab/>}
+      {tab===11 && <SeniorWelfare/>}
     </div>
   )
 }

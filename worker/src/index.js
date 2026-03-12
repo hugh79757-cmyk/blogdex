@@ -14,6 +14,36 @@ export default {
     }
 
     try {
+      // === 키워드 스카우트: 네이버 블로그 검색 프록시 ===
+      if (path === "/scout" && method === "GET") {
+        const query = url.searchParams.get("q");
+        const display = url.searchParams.get("display") || "3";
+        if (!query) return json({ error: "q parameter required" }, 400);
+        const cid = env.NAVER_CLIENT_ID;
+        const csec = env.NAVER_CLIENT_SECRET;
+        if (!cid || !csec) return json({ error: "Naver API keys not configured", has_id: !!cid, has_secret: !!csec }, 500);
+        const naverUrl = "https://openapi.naver.com/v1/search/blog.json?" +
+          new URLSearchParams({ query, display, sort: "sim" });
+        const naverRes = await fetch(naverUrl, {
+          headers: {
+            "X-Naver-Client-Id": env.NAVER_CLIENT_ID,
+            "X-Naver-Client-Secret": env.NAVER_CLIENT_SECRET
+          }
+        });
+        const naverData = await naverRes.json();
+        if (naverData.items && naverData.items.length > 0) {
+          const stmt = env.DB.prepare(
+            "INSERT OR IGNORE INTO collected_titles (title, url, source, status) VALUES (?, ?, ?, 'new')"
+          );
+          const batch = naverData.items.map(item => {
+            const title = item.title.replace(/<[^>]+>/g, "").trim();
+            return stmt.bind(title, item.link || "", "scout:" + query);
+          });
+          try { await env.DB.batch(batch); } catch(e) { /* ignore dup */ }
+        }
+        return json(naverData);
+      }
+
       if (path === "/blogs" && method === "GET") {
         const { results } = await env.DB.prepare("SELECT * FROM blogs ORDER BY id").all();
         return json(results);
@@ -551,7 +581,8 @@ export default {
       });
     }
 
-    return json({ error: "Not found" }, 404);
+
+
         const title = titleRows[0];
         const stopWords = ['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','이','그','저','것','수','등','및','또','더','를','을','에','의','가','은','는','으로','에서','와','과','도','만','부터','까지','처럼','같은','한국','한국은','처음','처음이지','어서','어서와','텐트','밖은','유럽','맛집','레시피','만들기','방송','특집','편','일','월','년','집','곳','때','중','후','전','것','들','위','속','간'];
         const words = title.title.split(/\s+/).filter(w => w.length >= 2 && !stopWords.includes(w.toLowerCase())).slice(0, 6);
