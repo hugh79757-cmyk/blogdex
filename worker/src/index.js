@@ -584,21 +584,22 @@ export default {
 
 
         const title = titleRows[0];
-        const stopWords = ['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','이','그','저','것','수','등','및','또','더','를','을','에','의','가','은','는','으로','에서','와','과','도','만','부터','까지','처럼','같은','한국','한국은','처음','처음이지','어서','어서와','텐트','밖은','유럽','맛집','레시피','만들기','방송','특집','편','일','월','년','집','곳','때','중','후','전','것','들','위','속','간'];
+        const stopWords = ['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','이','그','저','것','수','등','및','또','더','를','을','에','의','가','은','는','으로','에서','와','과','도','만','부터','까지','처럼','같은','한국','한국은','처음','처음이지','어서','어서와','텐트','밖은','유럽','맛집','레시피','만들기','방송','특집','편','일','월','년','집','곳','때','중','후','전','것','들','위','속','간','추천','방법','정리','총정리','일정','국내','해외','후기','비교','가격','순위','리뷰','소개','안내','정보','알아보기','확인','2024','2025','2026','best','top','vs'];
         const words = title.title.split(/\s+/).filter(w => w.length >= 2 && !stopWords.includes(w.toLowerCase())).slice(0, 6);
         
-        // 관련 포스트 - 최소 2개 키워드 동시 매칭
+        // 관련 포스트 - 핵심 키워드 매칭 (최소 50% 이상 + 2개 이상)
         let relatedPosts = [];
+        const minMatch = Math.max(2, Math.ceil(words.length * 0.5));
         if (words.length >= 2) {
           const { results: allPosts } = await env.DB.prepare("SELECT p.*, b.name as blog_name FROM my_posts p JOIN blogs b ON p.blog_id = b.id").all();
           for (const p of allPosts) {
             if (!p.title) continue;
             const matchCount = words.filter(w => p.title.includes(w)).length;
-            if (matchCount >= 2) {
-              relatedPosts.push({ ...p, match_count: matchCount });
+            if (matchCount >= minMatch) {
+              relatedPosts.push({ ...p, match_count: matchCount, match_ratio: Math.round(matchCount / words.length * 100) });
             }
           }
-          relatedPosts.sort((a, b) => b.match_count - a.match_count);
+          relatedPosts.sort((a, b) => b.match_count - a.match_count || b.match_ratio - a.match_ratio);
           relatedPosts = relatedPosts.slice(0, 10);
         }
         
