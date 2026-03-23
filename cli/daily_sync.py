@@ -328,6 +328,7 @@ def sync_bing():
         return {"status": "skipped", "row_count": 0}
 
     total_sites = 0
+    site_bing_stats = {}
     total_keywords = 0
     all_daily = []
     all_keywords = []
@@ -368,6 +369,12 @@ def sync_bing():
                         "clicks": s.get("Clicks", 0),
                         "impressions": s.get("Impressions", 0),
                     })
+                # 사이트별 클릭/노출 합산
+                if name not in site_bing_stats:
+                    site_bing_stats[name] = {"clicks": 0, "impressions": 0, "keywords": 0}
+                for s in stats[-7:]:
+                    site_bing_stats[name]["clicks"] += s.get("Clicks", 0)
+                    site_bing_stats[name]["impressions"] += s.get("Impressions", 0)
             except Exception as e:
                 log.error(f"  {name} 트래픽: {e}")
 
@@ -391,6 +398,9 @@ def sync_bing():
                     })
                     total_keywords += 1
                 log.info(f"    {name}: 키워드 {len(keywords[-100:])}건")
+                if name not in site_bing_stats:
+                    site_bing_stats[name] = {"clicks": 0, "impressions": 0, "keywords": 0}
+                site_bing_stats[name]["keywords"] = max(site_bing_stats[name]["keywords"], len(keywords[-100:]))
             except Exception as e:
                 log.error(f"  {name} 키워드: {e}")
 
@@ -409,7 +419,8 @@ def sync_bing():
 
     return {
         "status": "ok", "date": datetime.now().strftime("%Y-%m-%d"),
-        "sites": total_sites, "row_count": total_keywords
+        "sites": total_sites, "row_count": total_keywords,
+        "site_stats": site_bing_stats
     }
 
 
@@ -781,6 +792,51 @@ def main():
     ])
     if ga4.get("status") == "ok":
         msg_lines.append(f"  PV: {ga4.get('total_pv', 0):,} | 수익: ${ga4.get('total_rev', 0):.2f}")
+
+    # 색인 현황 추가
+    try:
+        import glob
+        gsc_files = sorted(glob.glob(str(SNAPSHOT_DIR / "gsc_2026-*.json")))[-7:]
+        gsc_sites = {}
+        for sf in gsc_files:
+            sd = json.load(open(sf))
+            for sname, sinfo in sd.get("sites", {}).items():
+                if sname not in gsc_sites:
+                    gsc_sites[sname] = {"impressions": 0}
+                gsc_sites[sname]["impressions"] += sinfo.get("impressions", 0)
+
+        bing_stats = results.get("bing", {}).get("site_stats", {})
+
+        all_s = sorted(set(list(gsc_sites.keys()) + list(bing_stats.keys())))
+        ok_count = 0
+        no_count = 0
+        no_sites = []
+        for s in all_s:
+            g = gsc_sites.get(s, {}).get("impressions", 0)
+            b = bing_stats.get(s, {}).get('keywords', 0)
+            if g > 0 or b > 0:
+                ok_count += 1
+            else:
+                no_count += 1
+                no_sites.append(s)
+
+        bing_total_clk = sum(v.get("clicks", 0) for v in bing_stats.values())
+        bing_total_imp = sum(v.get("impressions", 0) for v in bing_stats.values())
+
+        msg_lines.extend([
+            "",
+            f"<b>🔍 Bing</b>",
+            f"  클릭: {bing_total_clk:,} | 노출: {bing_total_imp:,} | 사이트: {len(bing_stats)}개",
+            "",
+            f"<b>📋 색인 현황</b> (GSC+Bing)",
+            f"  확인: {ok_count}개 | 미확인: {no_count}개 | 전체: {len(all_s)}개",
+        ])
+        if no_sites:
+            msg_lines.append(f"  미확인: {', '.join(no_sites[:10])}")
+            if len(no_sites) > 10:
+                msg_lines.append(f"  ...외 {len(no_sites)-10}개")
+    except Exception as e:
+        log.error(f"색인 현황 생성 실패: {e}")
 
     msg_lines.extend(["", f"⏱ {elapsed:.1f}초 소요"])
 
