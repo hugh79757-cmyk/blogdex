@@ -27,3 +27,5 @@ cli/.env
 cli/logs/
 *.bak
 *.DS_Store
+*.bak.*
+*.pickle.bak*

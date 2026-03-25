@@ -112,6 +112,9 @@ DOMAIN_PROPERTIES = {
         "ipo.techpawz.com",
         "finance.techpawz.com",
     ],
+    "sc-domain:informationhot.kr": [
+        "senior.informationhot.kr",
+    ],
 }
 
 # GA4 속성
@@ -163,6 +166,11 @@ GA4_PROPERTIES = {
     "529088575": "sector.techpawz.com",
     "529152161": "ipo.techpawz.com",
     "529142332": "finance.techpawz.com",
+    "529715626": "apt.informationhot.kr",
+    "529752187": "apply.informationhot.kr",
+    "529742117": "tax.informationhot.kr",
+    "529720369": "rent.informationhot.kr",
+    "529762700": "brand.informationhot.kr",
 }
 
 # Bing Webmaster API 키 (계정별)
@@ -516,16 +524,6 @@ def sync_gsc():
         json.dump(snapshot, f, ensure_ascii=False, indent=2)
     log.info(f"스냅샷 저장: {snapshot_file}")
 
-    # D1 업로드
-    if d1_daily_rows:
-        for row in d1_daily_rows:
-            api_post("/gsc/daily", row)
-
-    if d1_keyword_rows:
-        for i in range(0, len(d1_keyword_rows), 100):
-            batch = d1_keyword_rows[i:i+100]
-            api_post("/gsc/keywords", {"keywords": batch})
-
     # === 도메인 속성으로 서브도메인 데이터 수집 ===
     for domain_prop, subdomains in DOMAIN_PROPERTIES.items():
         try:
@@ -600,13 +598,14 @@ def sync_gsc():
 
     # D1 업로드
     if d1_daily_rows:
-        for row in d1_daily_rows:
-            api_post("/gsc/daily", row)
+        for i in range(0, len(d1_daily_rows), 100):
+            batch = d1_daily_rows[i:i+100]
+            api_post("/gsc/daily", {"data": batch})
 
     if d1_keyword_rows:
         for i in range(0, len(d1_keyword_rows), 100):
             batch = d1_keyword_rows[i:i+100]
-            api_post("/gsc/keywords", {"keywords": batch})
+            api_post("/gsc/keywords", {"data": batch})
 
     log.info(f"GSC 완료: 클릭 {total_clicks}, 노출 {total_impressions}, 키워드 {total_keywords}")
 
