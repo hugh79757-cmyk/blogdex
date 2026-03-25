@@ -101,6 +101,7 @@ SITES = [
     "https://guide.rotcha.kr/",
     "https://ev.rotcha.kr/",
     "https://sports.rotcha.kr/",
+    "https://kbo.rotcha.kr/",
     "https://apt.informationhot.kr/",
     "https://apply.informationhot.kr/",
     "https://tax.informationhot.kr/",
