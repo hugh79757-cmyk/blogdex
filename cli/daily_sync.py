@@ -101,6 +101,11 @@ SITES = [
     "https://guide.rotcha.kr/",
     "https://ev.rotcha.kr/",
     "https://sports.rotcha.kr/",
+    "https://apt.informationhot.kr/",
+    "https://apply.informationhot.kr/",
+    "https://tax.informationhot.kr/",
+    "https://rent.informationhot.kr/",
+    "https://brand.informationhot.kr/",
 ]
 
 # 도메인 속성: 서브도메인 데이터를 한번에 조회 (403 우회)
