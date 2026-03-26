@@ -8,8 +8,10 @@ TOKEN_FILE = "/Users/twinssn/Projects/blogdex/cli/google_token.pickle"
 
 SCOPES = [
     "https://www.googleapis.com/auth/analytics.readonly",
-    "https://www.googleapis.com/auth/webmasters.readonly",
-    "https://www.googleapis.com/auth/blogger.readonly"
+    "https://www.googleapis.com/auth/analytics.edit",
+    "https://www.googleapis.com/auth/webmasters",
+    "https://www.googleapis.com/auth/blogger.readonly",
+    "https://www.googleapis.com/auth/indexing",
 ]
 
 def get_credentials():

@@ -774,6 +774,17 @@ def main():
         results["posts"] = {"status": "error", "message": str(e)}
         record_sync_log("posts", {"status": "error", "row_count": 0, "date": "N/A"})
 
+    # Google Indexing API 제출
+    try:
+        from index_submit import run as run_indexing
+        log.info("Indexing API 제출 시작")
+        run_indexing(max_per_site=3)
+        results["indexing"] = {"status": "ok"}
+        log.info("Indexing API 제출 완료")
+    except Exception as e:
+        log.error(f"Indexing API 실패: {e}")
+        results["indexing"] = {"status": "error", "message": str(e)}
+
     # 소요 시간
     elapsed = (datetime.now() - start_time).total_seconds()
     log.info(f"완료: {elapsed:.1f}초 소요")
@@ -798,32 +809,53 @@ def main():
     if ga4.get("status") == "ok":
         msg_lines.append(f"  PV: {ga4.get('total_pv', 0):,} | 수익: ${ga4.get('total_rev', 0):.2f}")
 
-    # 색인 현황 추가
+    # 검색 노출 현황 + 변화 추적
     try:
         import glob
-        gsc_files = sorted(glob.glob(str(SNAPSHOT_DIR / "gsc_2026-*.json")))[-7:]
-        gsc_sites = {}
-        for sf in gsc_files:
-            sd = json.load(open(sf))
-            for sname, sinfo in sd.get("sites", {}).items():
-                if sname not in gsc_sites:
-                    gsc_sites[sname] = {"impressions": 0}
-                gsc_sites[sname]["impressions"] += sinfo.get("impressions", 0)
+        all_gsc_files = sorted(glob.glob(str(SNAPSHOT_DIR / "gsc_*.json")))
+
+        def calc_gsc_exposure(file_list):
+            sites = {}
+            for sf in file_list:
+                sd = json.load(open(sf))
+                for sname, sinfo in sd.get("sites", {}).items():
+                    if sname not in sites:
+                        sites[sname] = 0
+                    sites[sname] += sinfo.get("impressions", 0)
+            return sites
+
+        # 최근 7일 vs 그 이전 7일
+        recent_files = all_gsc_files[-7:]
+        prev_files = all_gsc_files[-14:-7] if len(all_gsc_files) >= 14 else []
+
+        gsc_recent = calc_gsc_exposure(recent_files)
+        gsc_prev = calc_gsc_exposure(prev_files)
 
         bing_stats = results.get("bing", {}).get("site_stats", {})
 
-        all_s = sorted(set(list(gsc_sites.keys()) + list(bing_stats.keys())))
-        ok_count = 0
-        no_count = 0
+        all_s = sorted(set(list(gsc_recent.keys()) + list(bing_stats.keys())))
+        ok_sites = []
         no_sites = []
         for s in all_s:
-            g = gsc_sites.get(s, {}).get("impressions", 0)
-            b = bing_stats.get(s, {}).get('keywords', 0)
+            g = gsc_recent.get(s, 0)
+            b = bing_stats.get(s, {}).get("keywords", 0)
             if g > 0 or b > 0:
-                ok_count += 1
+                ok_sites.append(s)
             else:
-                no_count += 1
                 no_sites.append(s)
+
+        # 변화 감지: 이전 7일 대비
+        new_exposure = []  # 이전엔 노출 없었는데 이번에 생긴 사이트
+        lost_exposure = []  # 이전엔 노출 있었는데 이번에 사라진 사이트
+        if prev_files:
+            prev_all = set(list(gsc_prev.keys()) + list(bing_stats.keys()))
+            for s in all_s:
+                g_now = gsc_recent.get(s, 0) + bing_stats.get(s, {}).get("keywords", 0)
+                g_prev = gsc_prev.get(s, 0)
+                if g_now > 0 and g_prev <= 0:
+                    new_exposure.append(s)
+                elif g_now <= 0 and g_prev > 0:
+                    lost_exposure.append(s)
 
         bing_total_clk = sum(v.get("clicks", 0) for v in bing_stats.values())
         bing_total_imp = sum(v.get("impressions", 0) for v in bing_stats.values())
@@ -833,11 +865,15 @@ def main():
             f"<b>🔍 Bing</b>",
             f"  클릭: {bing_total_clk:,} | 노출: {bing_total_imp:,} | 사이트: {len(bing_stats)}개",
             "",
-            f"<b>📋 색인 현황</b> (GSC+Bing)",
-            f"  확인: {ok_count}개 | 미확인: {no_count}개 | 전체: {len(all_s)}개",
+            f"<b>📋 7일 검색 노출 현황</b> (GSC+Bing)",
+            f"  노출 있음: {len(ok_sites)}개 | 노출 없음: {len(no_sites)}개 | 전체: {len(all_s)}개",
         ])
+        if new_exposure:
+            msg_lines.append(f"  🆕 새로 노출: {', '.join(sorted(new_exposure))}")
+        if lost_exposure:
+            msg_lines.append(f"  📉 노출 중단: {', '.join(sorted(lost_exposure))}")
         if no_sites:
-            msg_lines.append(f"  미확인: {', '.join(no_sites[:10])}")
+            msg_lines.append(f"  ⏳ 노출 없음: {', '.join(no_sites[:10])}")
             if len(no_sites) > 10:
                 msg_lines.append(f"  ...외 {len(no_sites)-10}개")
     except Exception as e:

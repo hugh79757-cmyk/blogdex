@@ -69,6 +69,23 @@ export default {
         return json({ inserted: body.posts.length });
       }
 
+      // 포스트 URL 벌크 업데이트
+      if (path === "/posts/update-urls" && method === "POST") {
+        const body = await request.json();
+        const updates = body.updates || [];
+        const stmt = env.DB.prepare(
+          "UPDATE my_posts SET url = ? WHERE blog_id = ? AND title = ?"
+        );
+        const batch = updates.map(u => stmt.bind(u.url, u.blog_id, u.title));
+        if (batch.length > 0) {
+          // D1 batch 최대 100개씩
+          for (let i = 0; i < batch.length; i += 100) {
+            await env.DB.batch(batch.slice(i, i + 100));
+          }
+        }
+        return json({ updated: updates.length });
+      }
+
       if (path === "/posts/search" && method === "GET") {
         const keyword = url.searchParams.get("q") || "";
         const blogId = url.searchParams.get("blog_id") || "";

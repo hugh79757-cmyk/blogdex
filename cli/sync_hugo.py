@@ -66,6 +66,21 @@ def run():
         repo_path = h["path"]
         content_dir = h.get("content_dir", "content/posts")
 
+        # Hugo 설정에서 baseURL 추출
+        base_url = ""
+        for cfg_name in ["hugo.toml", "config.toml", "hugo.yaml", "config.yaml"]:
+            cfg_path = Path(repo_path) / cfg_name
+            if cfg_path.exists():
+                cfg_text = cfg_path.read_text(encoding="utf-8")
+                for line in cfg_text.split("\n"):
+                    if "baseurl" in line.lower():
+                        # toml: baseURL = 'https://...' 또는 yaml: baseURL: "https://..."
+                        url_part = line.split("=", 1)[-1] if "=" in line else line.split(":", 1)[-1]
+                        base_url = url_part.strip().strip("'").strip('"').rstrip("/")
+                        break
+                if base_url:
+                    break
+
         db_blog_id = None
         for b in blogs_in_db:
             if b["name"] == name:
@@ -102,10 +117,22 @@ def run():
             keywords = ", ".join(tags + categories)
             date = str(meta.get("date", ""))[:10]
 
+            # 파일 경로에서 URL 생성
+            post_url = ""
+            if base_url:
+                slug = meta.get("slug", "")
+                if not slug:
+                    # 파일명에서 슬러그 추출 (index.md인 경우 상위 폴더명)
+                    if md_file.stem == "index":
+                        slug = md_file.parent.name
+                    else:
+                        slug = md_file.stem
+                post_url = f"{base_url}/posts/{slug}/"
+
             all_posts.append({
                 "blog_id": db_blog_id,
                 "title": title,
-                "url": "",
+                "url": post_url,
                 "keywords": keywords,
                 "published_at": date
             })

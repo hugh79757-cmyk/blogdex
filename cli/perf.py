@@ -32,12 +32,20 @@ def run():
     creds = get_credentials()
     client = BetaAnalyticsDataClient(credentials=creds)
 
-    summary = Table(title=f"전체 블로그 퍼포먼스 (최근 {days}일)", box=box.SIMPLE_HEAVY, expand=True)
+    summary = Table(
+        title=f"전체 블로그 퍼포먼스 (최근 {days}일)",
+        box=box.SIMPLE_HEAVY, expand=True
+    )
     summary.add_column("블로그", style="cyan", width=20)
     summary.add_column("조회수", justify="right", style="bold green", width=10)
     summary.add_column("세션", justify="right", style="yellow", width=8)
+    summary.add_column("수익($)", justify="right", style="bold red", width=9)
+    summary.add_column("클릭", justify="right", style="magenta", width=7)
+    summary.add_column("RPM($)", justify="right", style="blue", width=8)
     summary.add_column("TOP 글", style="white", no_wrap=False)
 
+    grand_views = 0
+    grand_revenue = 0
 
     for prop in PROPERTIES:
         try:
@@ -47,6 +55,8 @@ def run():
                 metrics=[
                     Metric(name="screenPageViews"),
                     Metric(name="sessions"),
+                    Metric(name="totalAdRevenue"),
+                    Metric(name="publisherAdClicks"),
                 ],
                 date_ranges=[DateRange(start_date=f"{days}daysAgo", end_date="today")],
                 order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="screenPageViews"), desc=True)],
@@ -56,19 +66,34 @@ def run():
 
             total_views = sum(int(row.metric_values[0].value) for row in response.rows)
             total_sessions = sum(int(row.metric_values[1].value) for row in response.rows)
+            total_revenue = sum(float(row.metric_values[2].value) for row in response.rows)
+            total_clicks = sum(int(row.metric_values[3].value) for row in response.rows)
+            rpm = (total_revenue / total_views * 1000) if total_views > 0 else 0
             top_title = response.rows[0].dimension_values[0].value[:35] if response.rows else "-"
+
+            grand_views += total_views
+            grand_revenue += total_revenue
 
             summary.add_row(
                 prop["name"],
                 f"{total_views:,}",
                 f"{total_sessions:,}",
+                f"{total_revenue:.2f}",
+                f"{total_clicks:,}",
+                f"{rpm:.2f}",
                 top_title
             )
         except Exception as e:
-            summary.add_row(prop["name"], "오류", "", str(e)[:35])
+            summary.add_row(prop["name"], "오류", "", "", "", "", str(e)[:35])
 
     console.print(summary)
 
+    grand_rpm = (grand_revenue / grand_views * 1000) if grand_views > 0 else 0
+    console.print(
+        f"\n[bold]합계: 조회수 {grand_views:,} | "
+        f"수익 ${grand_revenue:.2f} | "
+        f"평균 RPM ${grand_rpm:.2f}[/bold]"
+    )
+
 if __name__ == "__main__":
     run()
-
