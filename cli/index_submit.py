@@ -177,6 +177,10 @@ def submit_urls(creds, urls, dry_run=False):
             if resp.status_code == 200:
                 log.info(f"  OK: {url}")
                 results["success"] += 1
+            elif resp.status_code == 429:
+                log.warning(f"  쿼터 초과 - 제출 중단")
+                results["quota_exceeded"] = True
+                return results
             else:
                 error_msg = resp.text[:200]
                 log.warning(f"  FAIL ({resp.status_code}): {url} - {error_msg}")
@@ -226,6 +230,9 @@ def run(site_filter=None, single_url=None, dry_run=False, max_per_site=5):
             log.info(f"{name}: {len(urls)}개 URL 제출")
             result = submit_urls(creds, urls, dry_run)
             total_submitted += result["success"]
+            if result.get("quota_exceeded"):
+                log.warning("일일 쿼터 초과, 나머지 사이트 스킵")
+                break
 
     log.info(f"\n완료: {total_submitted}건 제출" + (" (DRY RUN)" if dry_run else ""))
 
