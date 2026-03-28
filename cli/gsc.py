@@ -34,17 +34,24 @@ SITES = [
     "https://guide.rotcha.kr/",
     "https://ev.rotcha.kr/",
     "https://sports.rotcha.kr/",
-    "https://dividend.techpawz.com/",
-    "https://etf.techpawz.com/",
-    "https://sector.techpawz.com/",
-    "https://ipo.techpawz.com/",
-    "https://finance.techpawz.com/",
     "https://mimdiomcat.tistory.com/",
     "https://foodwater.tistory.com/",
     "https://achaanstree.tistory.com/",
     "https://aikorea24.kr/",
     "https://cert.aikorea24.kr/",
+    "https://senior.informationhot.kr/",
 ]
+
+# 도메인 속성: 서브도메인을 sc-domain으로 조회
+DOMAIN_PROPERTIES = {
+    "sc-domain:techpawz.com": [
+        "dividend.techpawz.com",
+        "etf.techpawz.com",
+        "sector.techpawz.com",
+        "ipo.techpawz.com",
+        "finance.techpawz.com",
+    ],
+}
 
 def run():
     days = int(sys.argv[1]) if len(sys.argv) > 1 else 30
@@ -94,6 +101,31 @@ def run():
         except Exception as e:
             name = site_url.replace("https://", "").rstrip("/")
             summary.add_row(name, "-", "-", "-", str(e)[:20])
+
+
+    # === 도메인 속성으로 서브도메인 조회 ===
+    for domain_prop, subdomains in DOMAIN_PROPERTIES.items():
+        try:
+            resp = service.searchanalytics().query(
+                siteUrl=domain_prop,
+                body={"startDate": start_str, "endDate": end_str,
+                      "dimensions": ["query", "page"], "rowLimit": 5000}
+            ).execute()
+            all_rows = resp.get("rows", [])
+            for subdomain in subdomains:
+                sub_rows = [r for r in all_rows if subdomain in r.get("keys", ["", ""])[1]]
+                clicks = sum(r["clicks"] for r in sub_rows)
+                impressions = sum(r["impressions"] for r in sub_rows)
+                ctr = (clicks / impressions * 100) if impressions > 0 else 0
+                positions = [r["position"] for r in sub_rows if r["impressions"] > 0]
+                avg_pos = sum(positions) / len(positions) if positions else 0
+                total_clicks += clicks
+                total_impressions += impressions
+                summary.add_row(subdomain, str(clicks), str(impressions),
+                                f"{ctr:.1f}%", f"{avg_pos:.1f}")
+        except Exception as e:
+            for subdomain in subdomains:
+                summary.add_row(subdomain, "-", "-", "-", str(e)[:30])
 
     console.print(summary)
     total_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0

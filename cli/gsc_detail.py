@@ -16,7 +16,7 @@ def run():
 
     site_input = sys.argv[1]
     if not site_input.startswith("http"):
-        site_input = "https://" + site_input + "/"
+        site_input = site_input if site_input.startswith("sc-domain:") else "https://" + site_input + "/"
     days = int(sys.argv[2]) if len(sys.argv) > 2 else 30
 
     end = datetime.now() - timedelta(days=2)

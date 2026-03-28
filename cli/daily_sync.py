@@ -107,6 +107,7 @@ SITES = [
     "https://tax.informationhot.kr/",
     "https://rent.informationhot.kr/",
     "https://brand.informationhot.kr/",
+    "https://senior.informationhot.kr/",
 ]
 
 # 도메인 속성: 서브도메인 데이터를 한번에 조회 (403 우회)
@@ -117,9 +118,6 @@ DOMAIN_PROPERTIES = {
         "sector.techpawz.com",
         "ipo.techpawz.com",
         "finance.techpawz.com",
-    ],
-    "sc-domain:informationhot.kr": [
-        "senior.informationhot.kr",
     ],
 }
 
