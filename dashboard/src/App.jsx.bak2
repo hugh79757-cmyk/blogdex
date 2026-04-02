@@ -1,0 +1,1881 @@
+import React from 'react'
+import { useState, useEffect } from 'react'
+import api from './api'
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+
+const tabs = ['오늘의 코칭', '수익 분석', '수익 기회', '타이틀 수집', '타이틀 관리', '키워드', '사이트별', '리라이트 큐', '키워드 체크', '발행 배정', '노인복지']
+
+const HIGH_PATTERNS = ['추천','비교','가격','후기','리뷰','순위','신청','방법','절차','가입','등록','발급','할인','쿠폰','무료','혜택','보험','대출','적금','투자','보조금','지원금','환급','세금','vs','차이','장단점','구매']
+const LOW_PATTERNS = ['뜻','의미','영어로','누구','나이','키','몸무게','생일','mbti','학력']
+
+function classifyKw(q) {
+  const ql = q.toLowerCase()
+  for (const p of HIGH_PATTERNS) { if (ql.includes(p)) return 'high' }
+  for (const p of LOW_PATTERNS) { if (ql.includes(p)) return 'low' }
+  return 'medium'
+}
+
+function SortHeader({ label, field, sortField, sortDir, onSort, align }) {
+  const active = sortField === field
+  const arrow = active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''
+  return (
+    <th style={{...thStyle, textAlign: align||'left', cursor:'pointer', userSelect:'none'}}
+        onClick={() => onSort(field)}>
+      {label}{arrow}
+    </th>
+  )
+}
+
+function useSort(defaultField, defaultDir='desc') {
+  const [sortField, setSortField] = useState(defaultField)
+  const [sortDir, setSortDir] = useState(defaultDir)
+  const onSort = (field) => {
+    if (sortField === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('desc')
+    }
+  }
+  const sortData = (data) => {
+    return [...data].sort((a, b) => {
+      let va = a[sortField], vb = b[sortField]
+      if (typeof va === 'string') va = va.toLowerCase()
+      if (typeof vb === 'string') vb = vb.toLowerCase()
+      if (va < vb) return sortDir === 'asc' ? -1 : 1
+      if (va > vb) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+  }
+  return { sortField, sortDir, onSort, sortData }
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div style={{padding:16,background:'#fff',borderRadius:12,border:'1px solid #e5e7eb',boxShadow:'0 1px 3px rgba(0,0,0,0.05)'}}>
+      <div style={{fontSize:13,color:'#6b7280',marginBottom:4}}>{label}</div>
+      <div style={{fontSize:28,fontWeight:700,color:color||'#111'}}>{value}</div>
+    </div>
+  )
+}
+
+// === 정렬 훅 ===
+function useSortable(data, defaultKey = null, defaultAsc = true) {
+  const [sortKey, setSortKey] = useState(defaultKey)
+  const [asc, setAsc] = useState(defaultAsc)
+  const sorted = React.useMemo(() => {
+    if (!sortKey || !data) return data || []
+    return [...data].sort((a, b) => {
+      let va = a[sortKey], vb = b[sortKey]
+      if (va == null) va = ''
+      if (vb == null) vb = ''
+      const na = typeof va === 'string' ? parseFloat(va.replace(/[^0-9.-]/g,'')) : va
+      const nb = typeof vb === 'string' ? parseFloat(vb.replace(/[^0-9.-]/g,'')) : vb
+      if (!isNaN(na) && !isNaN(nb)) return asc ? na - nb : nb - na
+      return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va))
+    })
+  }, [data, sortKey, asc])
+  const toggle = (key) => {
+    if (sortKey === key) setAsc(!asc)
+    else { setSortKey(key); setAsc(false) }
+  }
+  const indicator = (key) => sortKey === key ? (asc ? ' ▲' : ' ▼') : ' ⇅'
+  return { sorted, toggle, indicator }
+}
+
+function SortTh({ label, sortKey, toggle, indicator, style = {} }) {
+  return (
+    <th onClick={() => toggle(sortKey)}
+      style={{cursor:'pointer',userSelect:'none',padding:'8px 6px',textAlign:'left',borderBottom:'2px solid #e5e7eb',fontSize:12,whiteSpace:'nowrap',...style}}>
+      {label}{indicator(sortKey)}
+    </th>
+  )
+}
+
+function SeniorWelfare() {
+  const [dates, setDates] = useState([])
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [briefingHtml, setBriefingHtml] = useState('')
+  const [news, setNews] = useState([])
+  const [view, setView] = useState('briefing')
+  const [collecting, setCollecting] = useState(false)
+  const [collectResult, setCollectResult] = useState(null)
+
+  useEffect(() => {
+    loadDates()
+    loadNews()
+  }, [])
+
+  const loadDates = () => {
+    fetch('http://localhost:5001/senior/dates').then(r => r.json()).then(data => {
+      setDates(data)
+      if (r.data.length > 0 && !selectedDate) {
+        setSelectedDate(r.data[0])
+      }
+    }).catch(() => {})
+  }
+
+  const loadNews = () => {
+    fetch('http://localhost:5001/senior/news').then(r => r.json()).then(data => setNews(data)).catch(() => {})
+  }
+
+  useEffect(() => {
+    if (selectedDate) {
+      fetch(`http://localhost:5001/senior/briefing/${selectedDate}`)
+        .then(r => r.text())
+        .then(html => setBriefingHtml(html))
+        .catch(() => setBriefingHtml('<p>브리핑을 불러올 수 없습니다.</p>'))
+    }
+  }, [selectedDate])
+
+  const handleCollect = async () => {
+    setCollecting(true)
+    setCollectResult(null)
+    try {
+      const r = await fetch('http://localhost:5001/senior/collect', {method:'POST'}).then(r => r.json())
+      setCollectResult(r)
+      loadDates()
+      loadNews()
+    } catch (e) {
+      setCollectResult({ error: e.message })
+    }
+    setCollecting(false)
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={() => setView('briefing')}
+            style={{...pillStyle, background: view==='briefing' ? '#f59e0b' : '#e5e7eb', color: view==='briefing' ? '#fff' : '#333'}}>
+            브리핑
+          </button>
+          <button onClick={() => setView('news')}
+            style={{...pillStyle, background: view==='news' ? '#f59e0b' : '#e5e7eb', color: view==='news' ? '#fff' : '#333'}}>
+            뉴스 목록 ({news.length})
+          </button>
+        </div>
+        <button onClick={handleCollect} disabled={collecting}
+          style={{...pillStyle, background: collecting ? '#9ca3af' : '#10b981', color:'#fff'}}>
+          {collecting ? '수집 중...' : '수집 + 브리핑 생성'}
+        </button>
+      </div>
+
+      {collectResult && (
+        <div style={{padding:12,background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,marginBottom:16,fontSize:13}}>
+          {collectResult.error
+            ? `오류: ${collectResult.error}`
+            : `수집: ${collectResult.collected || 0}건, 저장: ${collectResult.saved || 0}건, 브리핑: ${collectResult.briefing || '-'}`
+          }
+        </div>
+      )}
+
+      {view === 'briefing' ? (
+        <div style={{display:'flex',gap:16}}>
+          <div style={{width:160,flexShrink:0}}>
+            <div style={{fontSize:13,fontWeight:600,color:'#6b7280',marginBottom:8}}>날짜별 브리핑</div>
+            {dates.map(d => (
+              <div key={d} onClick={() => setSelectedDate(d)}
+                style={{padding:'8px 12px',cursor:'pointer',borderRadius:8,marginBottom:4,fontSize:13,
+                  background: selectedDate===d ? '#fef3c7' : 'transparent',
+                  fontWeight: selectedDate===d ? 600 : 400,
+                  color: selectedDate===d ? '#92400e' : '#374151'}}>
+                {d}
+              </div>
+            ))}
+            {dates.length === 0 && <div style={{fontSize:12,color:'#9ca3af'}}>브리핑 없음</div>}
+          </div>
+          <div style={{flex:1,border:'1px solid #e5e7eb',borderRadius:12,overflow:'hidden'}}>
+            {briefingHtml ? (
+              <iframe srcDoc={briefingHtml} style={{width:'100%',height:'calc(100vh - 200px)',border:'none'}} />
+            ) : (
+              <div style={{padding:40,textAlign:'center',color:'#9ca3af'}}>날짜를 선택하세요</div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={{...thStyle,width:40}}>#</th>
+                <th style={thStyle}>제목</th>
+                <th style={{...thStyle,width:80}}>출처</th>
+                <th style={{...thStyle,width:90}}>날짜</th>
+              </tr>
+            </thead>
+            <tbody>
+              {news.map((n, i) => (
+                <tr key={i} style={trStyle}>
+                  <td style={{...tdStyle,textAlign:'center',color:'#9ca3af'}}>{i+1}</td>
+                  <td style={tdStyle}>
+                    <a href={n.link} target="_blank" rel="noopener" style={{color:'#2563eb',textDecoration:'none'}}>
+                      {n.title}
+                    </a>
+                    {n.description && <div style={{fontSize:12,color:'#9ca3af',marginTop:2}}>{n.description.slice(0,80)}</div>}
+                  </td>
+                  <td style={{...tdStyle,fontSize:12,color:'#6b7280'}}>{n.source}</td>
+                  <td style={{...tdStyle,fontSize:12,color:'#6b7280'}}>{n.pub_date}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {news.length === 0 && <div style={{padding:40,textAlign:'center',color:'#9ca3af'}}>수집된 뉴스가 없습니다. "수집 + 브리핑 생성" 버튼을 눌러주세요.</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Dashboard() {
+  const [summary, setSummary] = useState(null)
+  const [daily, setDaily] = useState([])
+  const [days, setDays] = useState(30)
+
+  useEffect(() => {
+    api.get('/dashboard/summary?days=' + days).then(r => setSummary(r.data))
+    api.get('/gsc/daily?days=' + days).then(r => setDaily(r.data))
+  }, [days])
+
+  if (!summary) return (<p style={{padding:20}}>로딩 중...</p>)
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        {[7,30,60,90].map(d => (
+          <button key={d} onClick={() => setDays(d)}
+            style={{...pillStyle, background: days===d ? '#3b82f6' : '#e5e7eb', color: days===d ? '#fff' : '#333'}}>
+            {d}일
+          </button>
+        ))}
+      </div>
+      <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:24}}>
+        <StatCard label="블로그" value={summary.blogs} />
+        <StatCard label="포스트" value={summary.posts?.toLocaleString()} />
+        <StatCard label={days+'일 클릭'} value={summary.gsc_clicks?.toLocaleString()} color="#10b981" />
+        <StatCard label={days+'일 노출'} value={summary.gsc_impressions?.toLocaleString()} color="#3b82f6" />
+      </div>
+      <h3 style={{marginBottom:12}}>일별 클릭·노출 추이</h3>
+      {daily.length > 0 ? (
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={daily}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" tick={{fontSize:11}} tickFormatter={d => d.slice(5)} />
+            <YAxis yAxisId="left" />
+            <YAxis yAxisId="right" orientation="right" />
+            <Tooltip />
+            <Line yAxisId="right" type="monotone" dataKey="impressions" stroke="#3b82f6" name="노출" dot={false} />
+            <Line yAxisId="left" type="monotone" dataKey="clicks" stroke="#10b981" name="클릭" strokeWidth={2} />
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (<p style={{color:'#999'}}>데이터 없음</p>)}
+    </div>
+  )
+}
+
+function SitesView() {
+  const [sites, setSites] = useState([])
+  const [days, setDays] = useState(30)
+  const [selectedSite, setSelectedSite] = useState(null)
+  const [sitePages, setSitePages] = useState(null)
+  const [loadingPages, setLoadingPages] = useState(false)
+  const { sortField, sortDir, onSort, sortData } = useSort('impressions')
+  const pageSort = useSortable(sitePages?.pages, 'pv', false)
+
+  useEffect(() => {
+    api.get('/gsc/sites?days=' + days).then(r => setSites(r.data))
+    setSelectedSite(null)
+    setSitePages(null)
+  }, [days])
+
+  const openSiteDetail = async (site) => {
+    if (selectedSite === site) { setSelectedSite(null); setSitePages(null); return }
+    setSelectedSite(site)
+    setLoadingPages(true)
+    try {
+      const r = await api.get('/analysis/site-pages', {params:{site, days, limit:30}})
+      setSitePages(r.data)
+    } catch(e) { console.error(e); setSitePages(null) }
+    setLoadingPages(false)
+  }
+
+  const fmt = (n) => typeof n === 'number' ? n.toLocaleString() : n
+  const fmtR = (n) => typeof n === 'number' ? '$' + n.toFixed(2) : n
+  const shortPath = (url) => {
+    try { return decodeURIComponent(url).replace(/^\//, '').slice(0,50) + (url.length>50?'...':'') }
+    catch(e) { return url.slice(0,50) }
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        {[7,30,60,90].map(d => (
+          <button key={d} onClick={() => setDays(d)}
+            style={{...pillStyle, background: days===d ? '#3b82f6' : '#e5e7eb', color: days===d ? '#fff' : '#333'}}>
+            {d}일
+          </button>
+        ))}
+      </div>
+      {sites.length > 0 ? (
+        <div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={sites.filter(s => s.impressions > 0)}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="site" tick={{fontSize:10}} angle={-30} textAnchor="end" height={80} />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="impressions" fill="#3b82f6" name="노출" />
+              <Bar dataKey="clicks" fill="#10b981" name="클릭" />
+            </BarChart>
+          </ResponsiveContainer>
+          <table style={tableStyle}>
+            <thead>
+              <tr style={{background:'#f8fafc'}}>
+                <SortHeader label="사이트" field="site" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+                <SortHeader label="클릭" field="clicks" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+                <SortHeader label="노출" field="impressions" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+                <SortHeader label="CTR" field="ctr" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+              </tr>
+            </thead>
+            <tbody>
+              {sortData(sites).map((s,i) => (
+                <React.Fragment key={i}>
+                  <tr style={{borderBottom:'1px solid #eee',cursor:'pointer',background:selectedSite===s.site?'#eff6ff':'transparent'}}
+                      onClick={() => openSiteDetail(s.site)}>
+                    <td style={{...tdStyle,color:'#2563eb',fontWeight:selectedSite===s.site?700:400}}>
+                      {selectedSite===s.site ? '▼ ' : '▶ '}{s.site}
+                    </td>
+                    <td style={{...tdStyle,textAlign:'right',color:'#10b981',fontWeight:600}}>{s.clicks}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{s.impressions?.toLocaleString()}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{s.ctr}%</td>
+                  </tr>
+                  {selectedSite === s.site && (
+                    <tr><td colSpan={4} style={{padding:0}}>
+                      <div style={{background:'#f8fafc',padding:'12px 16px',borderBottom:'2px solid #e5e7eb'}}>
+                        {loadingPages ? (
+                          <div style={{textAlign:'center',color:'#6b7280',padding:20}}>페이지 로딩 중...</div>
+                        ) : sitePages && sitePages.pages ? (
+                          <div>
+                            <div style={{display:'flex',gap:16,marginBottom:12,fontSize:13}}>
+                              <span><b>총 PV:</b> {fmt(sitePages.total_pv)}</span>
+                              <span><b>총 수익:</b> {fmtR(sitePages.total_revenue)}</span>
+                              <span><b>페이지:</b> {sitePages.pages.length}개</span>
+                            </div>
+                            <table style={{...tableStyle,fontSize:12}}>
+                              <thead><tr>
+                                <th style={{padding:'6px 8px',textAlign:'center',borderBottom:'1px solid #e5e7eb',fontSize:11,width:30}}>#</th>
+                                <SortTh label="페이지" sortKey="page" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{fontSize:11}}/>
+                                <SortTh label="PV" sortKey="pv" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{textAlign:'right',fontSize:11}}/>
+                                <SortTh label="세션" sortKey="sessions" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{textAlign:'right',fontSize:11}}/>
+                                <SortTh label="수익" sortKey="revenue" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{textAlign:'right',fontSize:11}}/>
+                                <SortTh label="RPM" sortKey="rpm" toggle={pageSort.toggle} indicator={pageSort.indicator} style={{textAlign:'right',fontSize:11}}/>
+                              </tr></thead>
+                              <tbody>
+                                {(pageSort.sorted||[]).map((p,j) => (
+                                  <tr key={j} style={{background:j%2?'#f1f5f9':'#fff'}}>
+                                    <td style={{padding:'4px 8px',textAlign:'center',color:'#9ca3af',fontSize:11}}>{j+1}</td>
+                                    <td style={{padding:'4px 8px',fontSize:11,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={p.page}>{shortPath(p.page)}</td>
+                                    <td style={{padding:'4px 8px',textAlign:'right',fontWeight:600}}>{fmt(p.pv)}</td>
+                                    <td style={{padding:'4px 8px',textAlign:'right'}}>{fmt(p.sessions)}</td>
+                                    <td style={{padding:'4px 8px',textAlign:'right',color:p.revenue>0?'#16a34a':'#d1d5db'}}>{p.revenue>0?fmtR(p.revenue):'-'}</td>
+                                    <td style={{padding:'4px 8px',textAlign:'right',color:p.rpm>0?'#ca8a04':'#d1d5db'}}>{p.rpm>0?'$'+p.rpm.toFixed(2):'-'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (<div style={{color:'#ef4444'}}>데이터 로드 실패</div>)}
+                      </div>
+                    </td></tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (<p style={{color:'#999'}}>데이터 없음</p>)}
+    </div>
+  )
+}
+
+function KeywordsView() {
+  const [keywords, setKeywords] = useState([])
+  const [days, setDays] = useState(30)
+  const [filter, setFilter] = useState('')
+  const [limit, setLimit] = useState(200)
+  const { sortField, sortDir, onSort, sortData } = useSort('impressions')
+
+  useEffect(() => {
+    api.get('/gsc/keywords?days=' + days + '&limit=200').then(r => {
+      const data = r.data.map(k => ({...k, value: classifyKw(k.query)}))
+      if (filter) {
+        setKeywords(data.filter(k => k.value === filter))
+      } else {
+        setKeywords(data)
+      }
+    })
+  }, [days, filter])
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:12}}>
+        {[7,30,60,90].map(d => (
+          <button key={d} onClick={() => setDays(d)}
+            style={{...pillStyle, background: days===d ? '#3b82f6' : '#e5e7eb', color: days===d ? '#fff' : '#333'}}>
+            {d}일
+          </button>
+        ))}
+        <span style={{width:16}} />
+        {[{l:'전체',v:''},{l:'HIGH',v:'high'},{l:'MED',v:'medium'},{l:'LOW',v:'low'}].map(f => (
+          <button key={f.v} onClick={() => setFilter(f.v)}
+            style={{...pillStyle, background: filter===f.v ? '#3b82f6' : '#e5e7eb', color: filter===f.v ? '#fff' : '#333'}}>
+            {f.l}
+          </button>
+        ))}
+      </div>
+      <div style={{display:'flex',gap:4,marginBottom:16,alignItems:'center'}}>
+        <span style={{fontSize:12,color:'#6b7280',marginRight:4}}>표시:</span>
+        {[50,100,200,500].map(n => (
+          <button key={n} onClick={() => setLimit(n)}
+            style={{padding:'4px 10px',borderRadius:6,border:'none',fontSize:12,cursor:'pointer',
+              background: limit===n ? '#3b82f6' : '#e5e7eb', color: limit===n ? '#fff' : '#333'}}>{n}개</button>
+        ))}
+      </div>
+      <div style={{marginBottom:8,color:'#666',fontSize:13}}>
+        총 {keywords.length}개 | HIGH {keywords.filter(k=>k.value==='high').length} | MED {keywords.filter(k=>k.value==='medium').length} | LOW {keywords.filter(k=>k.value==='low').length}
+      </div>
+      <table style={tableStyle}>
+        <thead>
+          <tr style={{background:'#f8fafc'}}>
+            <SortHeader label="키워드" field="query" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="블로그" field="blog_name" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="가치" field="value" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="노출" field="impressions" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="클릭" field="clicks" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="CTR" field="ctr" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="순위" field="avg_position" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+          </tr>
+        </thead>
+        <tbody>
+          {sortData(keywords).slice(0,100).map((k,i) => (
+            <tr key={i} style={{borderBottom:'1px solid #eee'}}>
+              <td style={tdStyle}>{k.query}</td>
+              <td style={{...tdStyle,fontSize:11,color:'#6b7280'}}>{k.blog_name || k.site || '-'}</td>
+              <td style={tdStyle}>
+                <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,
+                  background: k.value==='high'?'#fee2e2':k.value==='medium'?'#fef3c7':'#f3f4f6',
+                  color: k.value==='high'?'#dc2626':k.value==='medium'?'#d97706':'#6b7280'}}>
+                  {k.value.toUpperCase()}
+                </span>
+              </td>
+              <td style={{...tdStyle,textAlign:'right'}}>{k.impressions?.toLocaleString()}</td>
+              <td style={{...tdStyle,textAlign:'right',color:'#10b981',fontWeight:600}}>{k.clicks}</td>
+              <td style={{...tdStyle,textAlign:'right'}}>{k.ctr}%</td>
+              <td style={{...tdStyle,textAlign:'right'}}>{k.avg_position}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RewriteQueue() {
+  const [keywords, setKeywords] = useState([])
+  const [days, setDays] = useState(30)
+  const { sortField, sortDir, onSort, sortData } = useSort('priority')
+
+  useEffect(() => {
+    api.get('/gsc/keywords?days=' + days + '&limit=500').then(r => {
+      const data = r.data.map(k => ({...k, value: classifyKw(k.query)}))
+      const queue = []
+      for (const k of data) {
+        const pos = k.avg_position
+        const ctr = k.ctr
+        const imp = k.impressions
+        let action = null
+        let priority = 0
+        if (pos <= 10 && ctr < 5 && imp >= 5) {
+          action = '타이틀/메타 개선'
+          priority = imp * (10 - ctr)
+        } else if (pos > 10 && pos <= 20 && imp >= 5) {
+          action = '콘텐츠 보강 → 1페이지'
+          priority = imp * 2
+        } else if (imp >= 10 && k.clicks === 0) {
+          action = '타이틀 전면 교체'
+          priority = imp * 5
+        }
+        if (action) queue.push({...k, action, priority})
+      }
+      queue.sort((a,b) => b.priority - a.priority)
+      setKeywords(queue)
+    })
+  }, [days])
+
+  const titleFixes = keywords.filter(k => k.action === '타이틀/메타 개선')
+  const contentFixes = keywords.filter(k => k.action === '콘텐츠 보강 → 1페이지')
+  const zeroClicks = keywords.filter(k => k.action === '타이틀 전면 교체')
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        {[7,30,60,90].map(d => (
+          <button key={d} onClick={() => setDays(d)}
+            style={{...pillStyle, background: days===d ? '#3b82f6' : '#e5e7eb', color: days===d ? '#fff' : '#333'}}>
+            {d}일
+          </button>
+        ))}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
+        <StatCard label="타이틀/메타 개선" value={titleFixes.length} color="#ef4444" />
+        <StatCard label="콘텐츠 보강" value={contentFixes.length} color="#f59e0b" />
+        <StatCard label="타이틀 전면 교체" value={zeroClicks.length} color="#8b5cf6" />
+      </div>
+      {keywords.length > 0 && (
+        <table style={tableStyle}>
+          <thead>
+            <tr style={{background:'#f8fafc'}}>
+              <SortHeader label="키워드" field="query" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+              <SortHeader label="액션" field="action" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+              <SortHeader label="노출" field="impressions" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+              <SortHeader label="클릭" field="clicks" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+              <SortHeader label="CTR" field="ctr" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+              <SortHeader label="순위" field="avg_position" align="right" sortField={sortField} sortDir={sortDir} onSort={onSort} />
+            </tr>
+          </thead>
+          <tbody>
+            {sortData(keywords).slice(0,50).map((k,i) => {
+              const actionColor = k.action.includes('메타') ? '#ef4444' : k.action.includes('보강') ? '#f59e0b' : '#8b5cf6'
+              return (
+                <tr key={i} style={{borderBottom:'1px solid #eee'}}>
+                  <td style={tdStyle}>{k.query}</td>
+                  <td style={tdStyle}>
+                    <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,background:actionColor+'20',color:actionColor}}>
+                      {k.action}
+                    </span>
+                  </td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{k.impressions?.toLocaleString()}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{k.clicks}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{k.ctr}%</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{k.avg_position}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+function TitleManager() {
+  const [tab, setTab] = useState('browse')
+  const [input, setInput] = useState('')
+  const [titles, setTitles] = useState([])
+  const [bulk, setBulk] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const [csvLog, setCsvLog] = useState([])
+  const [analyzing, setAnalyzing] = useState(false)
+  const [recommendations, setRecommendations] = useState([])
+  const [detail, setDetail] = useState(null)
+
+  // browse state
+  const [filter, setFilter] = useState('all')
+  const [browseData, setBrowseData] = useState([])
+  const [browseTotal, setBrowseTotal] = useState(0)
+  const [browsePage, setBrowsePage] = useState(1)
+  const [selected, setSelected] = useState(new Set())
+  const [sources, setSources] = useState([])
+  const [sourceFilter, setSourceFilter] = useState('')
+  const [selectAll, setSelectAll] = useState(false)
+
+  // search state
+  const [search, setSearch] = useState('')
+  const [results, setResults] = useState([])
+
+  const loadBrowse = async (status, page) => {
+    try {
+      const res = await api.get('/titles/filter?status=' + status + '&page=' + page + '&limit=30' + (sourceFilter ? '&source=' + encodeURIComponent(sourceFilter) : ''))
+      setBrowseData(res.data.data || [])
+      setBrowseTotal(res.data.total || 0)
+      setSelected(new Set())
+      setSelectAll(false)
+    } catch(e) { console.error(e) }
+  }
+
+  useEffect(() => { if (tab === 'browse') loadBrowse(filter, browsePage) }, [tab, filter, browsePage, sourceFilter])
+  useEffect(() => { api.get('/titles/sources').then(r => setSources(r.data || [])).catch(() => {}) }, [])
+
+  const toggleSelect = (id) => {
+    const s = new Set(selected)
+    if (s.has(id)) s.delete(id); else s.add(id)
+    setSelected(s)
+  }
+  const toggleAll = () => {
+    if (selectAll) { setSelected(new Set()); setSelectAll(false) }
+    else { setSelected(new Set(browseData.map(t => t.id))); setSelectAll(true) }
+  }
+  const bulkStatus = async (status) => {
+    if (selected.size === 0) return
+    try {
+      await api.put('/titles/bulk-status', { ids: Array.from(selected), status })
+      loadBrowse(filter, browsePage)
+    } catch(e) { alert('실패: ' + e.message) }
+  }
+
+  const [analyzeResults, setAnalyzeResults] = useState([])
+  const [analyzeLoading, setAnalyzeLoading] = useState(false)
+
+  const analyzeSelected = async () => {
+    if (selected.size === 0) return
+    setAnalyzeLoading(true)
+    const selectedTitles = browseData.filter(t => selected.has(t.id)).map(t => t.title)
+    try {
+      const allRecs = []
+      for (let i = 0; i < selectedTitles.length; i += 20) {
+        const batch = selectedTitles.slice(i, i + 20)
+        const res = await api.post('/titles/recommend', { titles: batch })
+        allRecs.push(...res.data)
+      }
+      setAnalyzeResults(allRecs)
+    } catch(e) { alert('분석 실패: ' + e.message) }
+    setAnalyzeLoading(false)
+  }
+
+  const addTitle = () => { if (input.trim()) { setTitles([...titles, input.trim()]); setInput('') } }
+  const removeTitle = (i) => setTitles(titles.filter((_, idx) => idx !== i))
+  const saveTitles = async () => {
+    if (titles.length === 0) return
+    try {
+      await api.post('/titles', { titles: titles.map(t => ({ title: t })) })
+      setCsvLog(prev => [...prev, titles.length + '건 저장 완료'])
+      setTitles([])
+    } catch(e) { alert('저장 실패') }
+  }
+  const addBulk = () => {
+    const lines = bulk.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+    if (lines.length > 0) { setTitles([...titles, ...lines]); setBulk(''); setCsvLog(prev => [...prev, lines.length + '건 추가']) }
+  }
+  const handleCsvFile = async (file) => {
+    const text = await file.text()
+    const lines = text.split('\n')
+    const skip = ['카테고리','태그 목록','전체보기','category','title,']
+    const parsed = []
+    for (const line of lines) {
+      const tr = line.trim()
+      if (!tr) continue
+      if (skip.some(p => tr.toLowerCase().includes(p.toLowerCase()))) continue
+      const title = (tr.split(',')[0] || '').replace(/^"|"$/g, '').trim()
+      if (title.length >= 2) parsed.push(title)
+    }
+    setCsvLog(prev => [...prev, file.name + ': ' + parsed.length + '건 파싱'])
+    if (parsed.length === 0) return
+    for (let i = 0; i < parsed.length; i += 500) {
+      const batch = parsed.slice(i, i + 500)
+      try {
+        await api.post('/titles', { titles: batch.map(t => ({ title: t })) })
+        setCsvLog(prev => [...prev, (i + batch.length) + '/' + parsed.length + ' 업로드'])
+      } catch(e) { setCsvLog(prev => [...prev, 'ERROR: ' + e.message]) }
+    }
+    setCsvLog(prev => [...prev, '블로그 추천 분석 시작...'])
+    setAnalyzing(true)
+    try {
+      const allRecs = []
+      for (let i = 0; i < parsed.length; i += 20) {
+        const res = await api.post('/titles/recommend', { titles: parsed.slice(i, i + 20) })
+        allRecs.push(...res.data)
+      }
+      setRecommendations(allRecs)
+      setCsvLog(prev => [...prev, allRecs.length + '건 분석 완료'])
+    } catch(e) { setCsvLog(prev => [...prev, '분석 실패: ' + e.message]) }
+    setAnalyzing(false)
+  }
+  const handleDrop = (e) => { e.preventDefault(); setDragOver(false); Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.csv')).forEach(handleCsvFile) }
+  const handleFileInput = (e) => { Array.from(e.target.files).filter(f => f.name.endsWith('.csv')).forEach(handleCsvFile) }
+  const searchTitles = async () => {
+    if (!search.trim()) return
+    try { const res = await api.get('/titles/search?q=' + encodeURIComponent(search)); setResults(res.data) } catch(e) { alert('검색 실패') }
+  }
+  const showDetail = async (id) => {
+    // 먼저 타이틀 텍스트 가져오기
+    const titleItem = browseData.find(t => t.id === id) || results.find(t => t.id === id)
+    const titleText = titleItem?.title || ''
+    
+    // 로컬 API (Kiwi) 시도
+    try {
+      const localRes = await fetch('http://localhost:5001/api/title-detail', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ title: titleText })
+      })
+      if (localRes.ok) {
+        const localData = await localRes.json()
+        setDetail({
+          title: titleItem || { title: titleText },
+          keywords: localData.keywords,
+          related_posts: localData.related_posts,
+          gsc_keywords: localData.gsc_keywords,
+          summary: localData.summary
+        })
+        return
+      }
+    } catch(e) {}
+    
+    // 로컬 실패시 Workers API
+    try {
+      const res = await api.get('/titles/detail/' + id)
+      setDetail(res.data)
+    } catch(e) { alert('상세 조회 실패') }
+  }
+
+  const statusColor = { saved: '#10b981', rejected: '#ef4444', pending: '#f59e0b', used: '#3b82f6' }
+  const statusLabel = { saved: '저장됨', rejected: '제외', pending: '대기', used: '사용됨' }
+  const recColor = (s) => s > 50 ? '#10b981' : s > 10 ? '#f59e0b' : '#6b7280'
+
+  return (
+    <div>
+      {/* 서브탭 */}
+      <div style={{display:'flex',gap:4,marginBottom:16}}>
+        {[{k:'browse',l:'타이틀 목록'},{k:'add',l:'등록/CSV'},{k:'search',l:'검색'}].map(t => (
+          <button key={t.k} onClick={() => setTab(t.k)}
+            style={{padding:'6px 14px',borderRadius:6,border:'none',fontSize:13,cursor:'pointer',
+              background: tab===t.k ? '#3b82f6' : '#f3f4f6', color: tab===t.k ? '#fff' : '#374151'}}>{t.l}</button>
+        ))}
+      </div>
+
+      {/* === 타이틀 목록 탭 === */}
+      {tab === 'browse' && (
+        <div>
+          <div style={{display:'flex',gap:4,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+            {['all','pending','saved','rejected','used'].map(s => (
+              <button key={s} onClick={() => { setFilter(s); setBrowsePage(1) }}
+                style={{padding:'5px 12px',borderRadius:6,border:'none',fontSize:12,cursor:'pointer',
+                  background: filter===s ? '#3b82f6' : '#f3f4f6', color: filter===s ? '#fff' : '#374151'}}>
+                {s === 'all' ? '전체' : (statusLabel[s] || s)}
+              </button>
+            ))}
+            <span style={{marginLeft:'auto',fontSize:12,color:'#6b7280'}}>총 {browseTotal}건</span>
+          </div>
+
+          {sources.length > 0 && (
+            <div style={{display:'flex',gap:4,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+              <span style={{fontSize:12,color:'#6b7280',marginRight:4}}>출처:</span>
+              <button onClick={() => { setSourceFilter(''); setBrowsePage(1) }}
+                style={{padding:'4px 10px',borderRadius:6,border:'none',fontSize:11,cursor:'pointer',
+                  background: !sourceFilter ? '#7c3aed' : '#f3f4f6', color: !sourceFilter ? '#fff' : '#374151'}}>전체</button>
+              {sources.filter(s => s.source).map(s => (
+                <button key={s.source} onClick={() => { setSourceFilter(s.source); setBrowsePage(1) }}
+                  style={{padding:'4px 10px',borderRadius:6,border:'none',fontSize:11,cursor:'pointer',
+                    background: sourceFilter === s.source ? '#7c3aed' : '#f3f4f6', color: sourceFilter === s.source ? '#fff' : '#374151'}}>
+                  {s.source} ({s.count})
+                </button>
+              ))}
+            </div>
+          )}
+
+          {selected.size > 0 && (
+            <div style={{display:'flex',gap:6,marginBottom:12,padding:8,background:'#f0f9ff',borderRadius:8}}>
+              <span style={{fontSize:12,color:'#374151',lineHeight:'28px'}}>{selected.size}건 선택</span>
+              <button onClick={() => bulkStatus('saved')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#10b981',color:'#fff',fontSize:12,cursor:'pointer'}}>저장</button>
+              <button onClick={() => bulkStatus('rejected')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#ef4444',color:'#fff',fontSize:12,cursor:'pointer'}}>제외</button>
+              <button onClick={() => bulkStatus('used')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#3b82f6',color:'#fff',fontSize:12,cursor:'pointer'}}>사용됨</button>
+              <button onClick={() => bulkStatus('pending')} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#f59e0b',color:'#fff',fontSize:12,cursor:'pointer'}}>대기로</button>
+              <button onClick={analyzeSelected} style={{padding:'4px 10px',borderRadius:4,border:'none',background:'#7c3aed',color:'#fff',fontSize:12,cursor:'pointer',marginLeft:'auto'}}>블로그 추천 분석</button>
+            </div>
+          )}
+
+          {analyzeLoading && <p style={{color:'#7c3aed',marginBottom:12}}>블로그 추천 분석 중...</p>}
+          {analyzeResults.length > 0 && (
+            <div style={{marginBottom:16,background:'#faf5ff',border:'1px solid #e9d5ff',borderRadius:12,padding:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+                <h4 style={{margin:0,color:'#7c3aed'}}>블로그 추천 결과 ({analyzeResults.length}건)</h4>
+                <button onClick={() => setAnalyzeResults([])} style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer'}}>닫기</button>
+              </div>
+              <table style={tableStyle}>
+                <thead><tr style={{background:'#f8fafc'}}>
+                  <th style={thStyle}>타이틀</th>
+                  <th style={{...thStyle,textAlign:'center'}}>추천 블로그</th>
+                  <th style={{...thStyle,textAlign:'right'}}>점수</th>
+                  <th style={{...thStyle,textAlign:'right'}}>노출</th>
+                  <th style={{...thStyle,textAlign:'center'}}>중복</th>
+                  <th style={thStyle}>근거</th>
+                </tr></thead>
+                <tbody>{analyzeResults.map((r, i) => (
+                  <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
+                    <td style={{...tdStyle,maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.title}</td>
+                    <td style={{...tdStyle,textAlign:'center',fontWeight:600,color: r.score > 50 ? '#10b981' : r.score > 10 ? '#f59e0b' : '#6b7280'}}>{r.recommendation || '-'}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{r.score || 0}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{r.impressions || 0}</td>
+                    <td style={{...tdStyle,textAlign:'center'}}>{r.dup_count || 0}</td>
+                    <td style={{...tdStyle,fontSize:11,color:'#6b7280'}}>{(r.reasons || []).join(', ') || '-'}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+
+          <table style={tableStyle}>
+            <thead><tr style={{background:'#f8fafc'}}>
+              <th style={{...thStyle,width:30}}><input type="checkbox" checked={selectAll} onChange={toggleAll}/></th>
+              <th style={thStyle}>타이틀</th>
+              <th style={{...thStyle,textAlign:'center',width:90}}>발행 블로그</th>
+              <th style={{...thStyle,width:100}}>출처</th>
+              <th style={{...thStyle,textAlign:'center',width:60}}>상태</th>
+            </tr></thead>
+            <tbody>{browseData.map(t => (
+              <tr key={t.id} style={{borderBottom:'1px solid #f3f4f6',cursor:'pointer'}} onClick={() => showDetail(t.id)}>
+                <td style={tdStyle} onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleSelect(t.id)}/></td>
+                <td style={{...tdStyle,maxWidth:350,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.title}</td>
+                <td style={{...tdStyle,textAlign:'center',fontSize:11}}>
+                  {t.published_in && t.published_in.length > 0
+                    ? t.published_in.map((p,j) => <div key={j} style={{color:'#10b981'}}>{p.blog_name}</div>)
+                    : <span style={{color:'#d1d5db'}}>-</span>}
+                </td>
+                <td style={{...tdStyle,fontSize:11,color:'#6b7280'}}>{t.source || '-'}</td>
+                <td style={{...tdStyle,textAlign:'center'}}>
+                  <span style={{fontSize:11,padding:'2px 8px',borderRadius:10,background:(statusColor[t.status]||'#e5e7eb')+'20',color:statusColor[t.status]||'#6b7280'}}>
+                    {statusLabel[t.status] || t.status || 'pending'}
+                  </span>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+
+          {browseTotal > 30 && (
+            <div style={{display:'flex',justifyContent:'center',gap:8,marginTop:12}}>
+              <button disabled={browsePage<=1} onClick={() => setBrowsePage(browsePage-1)} style={{...btnStyle,opacity:browsePage<=1?0.3:1}}>이전</button>
+              <span style={{fontSize:12,lineHeight:'32px',color:'#6b7280'}}>{browsePage} / {Math.ceil(browseTotal/30)}</span>
+              <button disabled={browsePage>=Math.ceil(browseTotal/30)} onClick={() => setBrowsePage(browsePage+1)} style={{...btnStyle,opacity:browsePage>=Math.ceil(browseTotal/30)?0.3:1}}>다음</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === 등록/CSV 탭 === */}
+      {tab === 'add' && (
+        <div>
+      <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:12,padding:16,marginBottom:16}}>
+        <h4 style={{margin:'0 0 8px',fontSize:14,color:'#166534'}}>경쟁사 타이틀 수집</h4>
+        <p style={{fontSize:12,color:'#374151',margin:'0 0 8px'}}>터미널에서 실행 후 생성된 CSV를 아래에 드래그하세요</p>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <div style={{background:'#fff',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 12px',fontSize:12}}>
+            <div style={{fontWeight:600,marginBottom:4}}>일반 사이트 (티스토리/WP)</div>
+            <code style={{fontSize:11,color:'#6b7280'}}>python crawl_titles.py</code>
+          </div>
+          <div style={{background:'#fff',border:'1px solid #d1d5db',borderRadius:8,padding:'8px 12px',fontSize:12}}>
+            <div style={{fontWeight:600,marginBottom:4}}>네이버 블로그</div>
+            <code style={{fontSize:11,color:'#6b7280'}}>python crawl_naver.py</code>
+          </div>
+        </div>
+        <p style={{fontSize:11,color:'#6b7280',margin:'8px 0 0'}}>CSV 저장 위치: cli/collected_titles/</p>
+      </div>
+
+
+      <div onDrop={handleDrop} onDragOver={e=>{e.preventDefault();setDragOver(true)}} onDragLeave={()=>setDragOver(false)}
+            style={{border:dragOver?'2px solid #3b82f6':'2px dashed #d1d5db',borderRadius:12,padding:32,textAlign:'center',marginBottom:16,background:dragOver?'#eff6ff':'#fafafa',cursor:'pointer'}}
+            onClick={()=>document.getElementById('csvInput').click()}>
+            <div style={{fontSize:14,color:'#6b7280'}}>CSV 파일을 여기에 드래그하거나 클릭</div>
+            <div style={{fontSize:12,color:'#9ca3af',marginTop:4}}>업로드 후 자동 블로그 추천 분석</div>
+            <input id="csvInput" type="file" accept=".csv" multiple style={{display:'none'}} onChange={handleFileInput}/>
+          </div>
+
+          {csvLog.length > 0 && (
+            <div style={{background:'#f8fafc',border:'1px solid #e5e7eb',borderRadius:8,padding:12,marginBottom:16,maxHeight:120,overflowY:'auto'}}>
+              {csvLog.map((l,i) => <div key={i} style={{fontSize:12,color:l.includes('ERROR')?'#ef4444':'#374151'}}>{l}</div>)}
+            </div>
+          )}
+
+          {analyzing && <p style={{color:'#3b82f6',marginBottom:12}}>분석 중...</p>}
+          {recommendations.length > 0 && (
+            <div style={{marginBottom:24}}>
+              <h3 style={{marginBottom:8}}>블로그 추천 결과 ({recommendations.length}건)</h3>
+              <table style={tableStyle}>
+                <thead><tr style={{background:'#f8fafc'}}>
+                  <th style={thStyle}>타이틀</th>
+                  <th style={{...thStyle,textAlign:'center'}}>추천 블로그</th>
+                  <th style={{...thStyle,textAlign:'right'}}>점수</th>
+                  <th style={{...thStyle,textAlign:'right'}}>노출</th>
+                  <th style={{...thStyle,textAlign:'center'}}>중복</th>
+                  <th style={thStyle}>근거</th>
+                </tr></thead>
+                <tbody>{recommendations.map((r,i) => (
+                  <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
+                    <td style={{...tdStyle,maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.title}</td>
+                    <td style={{...tdStyle,textAlign:'center',fontWeight:600,color:recColor(r.score)}}>{r.recommendation||'-'}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{r.score||0}</td>
+                    <td style={{...tdStyle,textAlign:'right'}}>{r.impressions||0}</td>
+                    <td style={{...tdStyle,textAlign:'center'}}>{r.dup_count||0}</td>
+                    <td style={{...tdStyle,fontSize:11,color:'#6b7280'}}>{(r.reasons||[]).join(', ')||'-'}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+
+          <div style={{marginBottom:16}}>
+            <textarea value={bulk} onChange={e=>setBulk(e.target.value)} placeholder="여러 타이틀을 줄바꿈으로 입력" rows={4} style={{...inputStyle,width:'100%',resize:'vertical'}}/>
+            <button onClick={addBulk} style={{...btnStyle,marginTop:4}}>대량 추가</button>
+          </div>
+
+          <div style={{display:'flex',gap:8,marginBottom:16}}>
+            <input value={input} onChange={e=>setInput(e.target.value)} placeholder="타이틀 입력" onKeyDown={e=>e.key==='Enter'&&addTitle()} style={{...inputStyle,flex:1}}/>
+            <button onClick={addTitle} style={btnStyle}>추가</button>
+          </div>
+
+          {titles.length > 0 && (
+            <div style={{marginBottom:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                <span style={{fontSize:13,color:'#6b7280'}}>대기: {titles.length}건</span>
+                <button onClick={saveTitles} style={{...btnStyle,background:'#10b981'}}>전체 저장</button>
+              </div>
+              {titles.map((t,i) => (
+                <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid #f3f4f6',fontSize:13}}>
+                  <span>{t}</span>
+                  <button onClick={()=>removeTitle(i)} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer'}}>x</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === 검색 탭 === */}
+      {tab === 'search' && (
+        <div>
+          <div style={{display:'flex',gap:8,marginBottom:12}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="키워드 검색" onKeyDown={e=>e.key==='Enter'&&searchTitles()} style={{...inputStyle,flex:1}}/>
+            <button onClick={searchTitles} style={btnStyle}>검색</button>
+          </div>
+          {results.length > 0 && (
+            <table style={tableStyle}>
+              <thead><tr style={{background:'#f8fafc'}}>
+                <th style={thStyle}>타이틀</th>
+                <th style={{...thStyle,textAlign:'center'}}>발행 블로그</th>
+                <th style={{...thStyle,textAlign:'center'}}>상태</th>
+                <th style={{...thStyle,textAlign:'center'}}>상세</th>
+              </tr></thead>
+              <tbody>{results.map((r,i) => (
+                <tr key={i} style={{borderBottom:'1px solid #f3f4f6',cursor:'pointer'}} onClick={()=>showDetail(r.id)}>
+                  <td style={tdStyle}>{r.title}</td>
+                  <td style={{...tdStyle,textAlign:'center',fontSize:11}}>
+                    {r.published_in && r.published_in.length > 0
+                      ? r.published_in.map((p,j) => <div key={j} style={{color:'#10b981'}}>{p.blog_name}</div>)
+                      : <span style={{color:'#d1d5db'}}>-</span>}
+                  </td>
+                  <td style={{...tdStyle,textAlign:'center'}}>
+                    <span style={{fontSize:11,padding:'2px 8px',borderRadius:10,background:(statusColor[r.status]||'#e5e7eb')+'20',color:statusColor[r.status]||'#6b7280'}}>
+                      {statusLabel[r.status]||r.status||'pending'}
+                    </span>
+                  </td>
+                  <td style={{...tdStyle,textAlign:'center',color:'#3b82f6'}}>보기</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* 상세 모달 */}
+      {detail && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:999}} onClick={()=>setDetail(null)}>
+          <div style={{background:'#fff',borderRadius:16,padding:24,maxWidth:700,width:'90%',maxHeight:'80vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:16}}>
+              <h3 style={{margin:0}}>{detail.title?.title||''}</h3>
+              {detail.keywords && detail.keywords.length > 0 && (
+                <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:8}}>
+                  {detail.keywords.map((kw,i) => (
+                    <span key={i} style={{padding:'2px 8px',borderRadius:10,fontSize:11,background:'#eff6ff',color:'#2563eb'}}>{kw}</span>
+                  ))}
+                </div>
+              )}
+              <button onClick={()=>setDetail(null)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer'}}>x</button>
+            </div>
+            {detail.related_posts?.length > 0 && (
+              <div style={{marginBottom:16}}>
+                <h4 style={{marginBottom:8,color:'#374151'}}>발행된 관련 글</h4>
+                {detail.related_posts.map((p,i) => (
+                  <div key={i} style={{padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:13}}>
+                    <div style={{fontWeight:600}}>{p.blog_name}</div>
+                    <div>{p.title}</div>
+                    {p.url && <a href={p.url} target="_blank" rel="noreferrer" style={{color:'#3b82f6',fontSize:12}}>{p.url}</a>}
+                    <div style={{color:'#9ca3af',fontSize:11}}>{p.published_at}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {detail.gsc_keywords?.length > 0 && (
+              <div>
+                <h4 style={{marginBottom:8,color:'#374151'}}>GSC 키워드 성과</h4>
+                <table style={tableStyle}>
+                  <thead><tr style={{background:'#f8fafc'}}>
+                    <th style={thStyle}>사이트</th><th style={thStyle}>키워드</th>
+                    <th style={{...thStyle,textAlign:'right'}}>클릭</th><th style={{...thStyle,textAlign:'right'}}>노출</th><th style={{...thStyle,textAlign:'right'}}>순위</th>
+                  </tr></thead>
+                  <tbody>{detail.gsc_keywords.map((k,i) => (
+                    <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
+                      <td style={{...tdStyle,fontSize:12}}>{k.site}</td><td style={tdStyle}>{k.query}</td>
+                      <td style={{...tdStyle,textAlign:'right'}}>{k.clicks}</td><td style={{...tdStyle,textAlign:'right'}}>{k.impressions}</td>
+                      <td style={{...tdStyle,textAlign:'right'}}>{k.avg_position?.toFixed(1)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+            {(!detail.related_posts||detail.related_posts.length===0)&&(!detail.gsc_keywords||detail.gsc_keywords.length===0) && (
+              <p style={{color:'#9ca3af'}}>관련 데이터가 없습니다</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TitleCrawler() {
+  const [url, setUrl] = useState('')
+  const [maxCount, setMaxCount] = useState(100)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState('')
+  const LOCAL_API = 'http://localhost:5001'
+
+  const startCrawl = async () => {
+    if (!url.trim()) return
+    setLoading(true)
+    setError('')
+    setResult(null)
+    try {
+      const res = await fetch(LOCAL_API + '/api/crawl', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ url: url.trim(), max: maxCount })
+      })
+      const data = await res.json()
+      if (data.error && !data.titles) {
+        setError(data.error)
+      } else {
+        setResult(data)
+      }
+    } catch(e) {
+      setError('로컬 서버 연결 실패. 터미널에서 먼저 실행하세요: python local_api.py')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div>
+      <div style={{background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:12,padding:16,marginBottom:16}}>
+        <p style={{fontSize:12,color:'#1e40af',margin:0}}>로컬 서버 필요: <code>cd /Users/twinssn/Projects/blogdex/cli && python local_api.py</code></p>
+      </div>
+
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.tistory.com 또는 https://blog.naver.com/blogid"
+          onKeyDown={e => e.key === 'Enter' && startCrawl()}
+          style={{...inputStyle,flex:1,minWidth:300}} />
+        <select value={maxCount} onChange={e => setMaxCount(Number(e.target.value))}
+          style={{...inputStyle,width:100}}>
+          <option value={50}>50개</option>
+          <option value={100}>100개</option>
+          <option value={200}>200개</option>
+          <option value={500}>500개</option>
+          <option value={1000}>1000개</option>
+        </select>
+        <button onClick={startCrawl} disabled={loading}
+          style={{...btnStyle, opacity: loading ? 0.5 : 1}}>
+          {loading ? '수집 중...' : '수집 시작'}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:12,marginBottom:16,color:'#dc2626',fontSize:13}}>
+          {error}
+        </div>
+      )}
+
+      {result && (
+        <div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
+            <StatCard label="출처" value={result.source} />
+            <StatCard label="전체 포스트" value={result.total_posts} />
+            <StatCard label="수집된 타이틀" value={result.crawled} color="#10b981" />
+            <StatCard label="DB 저장" value={result.saved_to_db ? 'OK' : '실패'} color={result.saved_to_db ? '#10b981' : '#ef4444'} />
+          </div>
+
+          {result.titles && result.titles.length > 0 && (
+            <table style={tableStyle}>
+              <thead><tr style={{background:'#f8fafc'}}>
+                <th style={{...thStyle,width:40}}>#</th>
+                <th style={thStyle}>타이틀</th>
+                <th style={thStyle}>URL</th>
+              </tr></thead>
+              <tbody>{result.titles.map((t, i) => (
+                <tr key={i} style={{borderBottom:'1px solid #f3f4f6'}}>
+                  <td style={{...tdStyle,textAlign:'center',color:'#9ca3af'}}>{i+1}</td>
+                  <td style={tdStyle}>{t.title}</td>
+                  <td style={{...tdStyle,fontSize:11,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    <a href={t.url} target="_blank" rel="noreferrer" style={{color:'#3b82f6'}}>{t.url}</a>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+
+function CoachingDashboard() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.get('/coaching/today').then(d => { const raw = d.data || d; console.log('COACHING:', raw.summary); setData(raw); setLoading(false) }).catch(e => { console.error(e); setLoading(false) })
+  }, [])
+
+  if (loading) return <div style={{padding:40,textAlign:'center',fontSize:18}}>코칭 데이터 로딩 중...</div>
+  if (!data) return <div style={{padding:40,textAlign:'center',color:'#ef4444'}}>데이터를 불러올 수 없습니다</div>
+
+  const s = data.summary || {}
+  const progressColor = s.month_progress >= 100 ? '#10b981' : s.month_progress >= 60 ? '#f59e0b' : '#ef4444'
+
+  // 어제 vs 그저께 비교
+  const yMap = {}; (data.yesterday_compare?.yesterday || []).forEach(r => yMap[r.site] = r)
+  const bMap = {}; (data.yesterday_compare?.before || []).forEach(r => bMap[r.site] = r)
+
+  return <div>
+    <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap'}}>
+      <div style={{flex:1,minWidth:200,background:'linear-gradient(135deg,#667eea,#764ba2)',borderRadius:16,padding:24,color:'#fff'}}>
+        <div style={{fontSize:14,opacity:0.8}}>이번 달 수익</div>
+        <div style={{fontSize:36,fontWeight:800}}>${s.month_revenue?.toFixed(2)}</div>
+        <div style={{fontSize:13,marginTop:8}}>목표 ${s.month_target} 대비 {s.month_progress}%</div>
+        <div style={{background:'rgba(255,255,255,0.3)',borderRadius:8,height:8,marginTop:8}}>
+          <div style={{background:'#fff',borderRadius:8,height:8,width:Math.min(s.month_progress,100)+'%'}}></div>
+        </div>
+      </div>
+      <div style={{flex:1,minWidth:200,background:'#fff',borderRadius:16,padding:24,border:'2px solid #e5e7eb'}}>
+        <div style={{fontSize:14,color:'#6b7280'}}>어제 수익</div>
+        <div style={{fontSize:36,fontWeight:800,color:'#059669'}}>${s.yesterday_rev?.toFixed(2)}</div>
+        <div style={{fontSize:13,color:'#6b7280',marginTop:8}}>PV {s.yesterday_pv?.toLocaleString()}</div>
+      </div>
+      <div style={{flex:1,minWidth:200,background:'#fff',borderRadius:16,padding:24,border:'2px solid #e5e7eb'}}>
+        <div style={{fontSize:14,color:'#6b7280'}}>일평균 수익</div>
+        <div style={{fontSize:36,fontWeight:800,color:'#2563eb'}}>${s.daily_avg?.toFixed(2)}</div>
+        <div style={{fontSize:13,color: s.daily_needed > s.daily_avg ? '#ef4444' : '#10b981',marginTop:8}}>
+          목표 달성하려면 하루 ${s.daily_needed?.toFixed(2)} 필요
+        </div>
+      </div>
+    </div>
+
+    <h3 style={{fontSize:18,fontWeight:700,marginBottom:16,color:'#111827'}}>오늘 할 일</h3>
+
+    {data.zero_revenue_sites?.length > 0 && <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:12,padding:16,marginBottom:12}}>
+      <div style={{fontWeight:700,color:'#dc2626',marginBottom:4}}>설정 확인 필요</div>
+      {data.zero_revenue_sites.map((z,i) => (
+        <div key={i} style={{fontSize:14,color:'#991b1b'}}>{z.site} — PV {z.pv?.toLocaleString()}인데 수익 $0. 애드센스 연결을 확인하세요.</div>
+      ))}
+    </div>}
+
+    {data.rewrite_targets?.length > 0 && <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:12,padding:16,marginBottom:12}}>
+      <div style={{fontWeight:700,color:'#d97706',marginBottom:8}}>타이틀 변경하면 클릭이 생깁니다</div>
+      {data.rewrite_targets.slice(0,5).map((r,i) => (
+        <div key={i} style={{fontSize:14,color:'#92400e',marginBottom:6}}>
+          <span style={{fontWeight:600}}>{r.site}</span> — "{r.query}" 노출 {r.imp}회, 클릭 0, 순위 {r.pos}위.
+          <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',marginLeft:8,fontSize:12}}>글 보기</a>
+        </div>
+      ))}
+    </div>}
+
+    {data.top_rpm_pages?.length > 0 && <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:12,padding:16,marginBottom:12}}>
+      <div style={{fontWeight:700,color:'#16a34a',marginBottom:8}}>이런 키워드로 글을 쓰세요 (RPM 높은 글)</div>
+      {data.top_rpm_pages.slice(0,5).map((r,i) => (
+        <div key={i} style={{fontSize:14,color:'#166534',marginBottom:6}}>
+          <span style={{fontWeight:600}}>{r.site}</span> — RPM ${r.rpm} | PV {r.pv} | 수익 ${r.rev?.toFixed(2)}
+          <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',marginLeft:8,fontSize:12}}>글 보기</a>
+        </div>
+      ))}
+      <div style={{fontSize:13,color:'#6b7280',marginTop:8}}>이 글들의 키워드를 구글에 검색 → 상위 블로그 URL을 타이틀 수집 탭에 입력하세요</div>
+    </div>}
+
+    <h3 style={{fontSize:18,fontWeight:700,marginTop:24,marginBottom:16,color:'#111827'}}>블로그별 상태</h3>
+    <table style={{width:'100%',borderCollapse:'collapse'}}>
+      <thead><tr>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'left',fontSize:13,fontWeight:600,background:'#f9fafb'}}>사이트</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'right',fontSize:13,fontWeight:600,background:'#f9fafb'}}>총 PV</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'right',fontSize:13,fontWeight:600,background:'#f9fafb'}}>총 수익</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'right',fontSize:13,fontWeight:600,background:'#f9fafb'}}>RPM</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'right',fontSize:13,fontWeight:600,background:'#f9fafb'}}>어제 PV</th>
+        <th style={{padding:'10px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'center',fontSize:13,fontWeight:600,background:'#f9fafb'}}>변화</th>
+      </tr></thead>
+      <tbody>{(data.site_summary || []).map((r,i) => {
+        const rpm = r.pv > 0 ? (r.rev / r.pv * 1000) : 0
+        const yPv = yMap[r.site]?.pv || 0
+        const bPv = bMap[r.site]?.pv || 0
+        const change = bPv > 0 ? Math.round((yPv - bPv) / bPv * 100) : 0
+        return <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',fontWeight:600,color:'#2563eb',fontSize:13}}>{r.site}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'right',fontSize:13}}>{r.pv?.toLocaleString()}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'right',fontSize:13,color:'#059669',fontWeight:600}}>${r.rev?.toFixed(2)}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'right',fontSize:13,fontWeight:700,color: rpm > 5 ? '#dc2626' : rpm > 2 ? '#f59e0b' : '#6b7280'}}>${rpm.toFixed(2)}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'right',fontSize:13}}>{yPv}</td>
+          <td style={{padding:'10px 12px',borderBottom:'1px solid #f3f4f6',textAlign:'center',fontSize:13,fontWeight:600,color: change > 0 ? '#10b981' : change < 0 ? '#ef4444' : '#6b7280'}}>
+            {change > 0 ? '+' : ''}{change}%
+          </td>
+        </tr>
+      })}</tbody>
+    </table>
+  </div>
+}
+
+function OpportunityDashboard() {
+  const [rewrite, setRewrite] = useState([])
+  const [topPages, setTopPages] = useState([])
+  const [seoOpp, setSeoOpp] = useState([])
+  const [blogEff, setBlogEff] = useState([])
+  const [rpmRanking, setRpmRanking] = useState([])
+  const [revSummary, setRevSummary] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [panel, setPanel] = useState('rewrite')
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/analysis/rewrite-targets'),
+      api.get('/analysis/top-pages'),
+      api.get('/analysis/seo-opportunity'),
+      api.get('/analysis/blog-efficiency'),
+      api.get('/analysis/rpm-ranking'),
+      api.get('/analysis/revenue-summary'),
+    ]).then(([r, t, s, b, rpm, rev]) => {
+      const g=x=>Array.isArray(x)?x:Array.isArray(x?.data)?x.data:[]; setRewrite(g(r)); setTopPages(g(t)); setSeoOpp(g(s)); setBlogEff(g(b)); setRpmRanking(g(rpm)); setRevSummary(g(rev)); setLoading(false)
+    }).catch(e => { console.error(e); setLoading(false) })
+  }, [])
+
+  if (loading) return <div style={{padding:40,textAlign:'center'}}>분석 데이터 로딩 중...</div>
+
+  const panelBtns = [
+    {key:'rewrite', label:'타이틀 리라이트 대상', count:rewrite.length, color:'#ef4444'},
+    {key:'top', label:'트래픽 TOP 글', count:topPages.length, color:'#3b82f6'},
+    {key:'seo', label:'구글 SEO 보강', count:seoOpp.length, color:'#f59e0b'},
+    {key:'eff', label:'블로그별 효율', count:blogEff.length, color:'#10b981'},
+    {key:'rpm', label:'RPM 높은 글', count:rpmRanking.length, color:'#8b5cf6'},
+    {key:'rev', label:'사이트별 수익', count:revSummary.length, color:'#ec4899'},
+  ]
+
+  const thStyle = {padding:'8px 12px',borderBottom:'2px solid #e5e7eb',textAlign:'left',fontSize:13,fontWeight:600,background:'#f9fafb'}
+  const tdStyle = {padding:'8px 12px',borderBottom:'1px solid #f3f4f6',fontSize:13}
+
+  return <div>
+    <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
+      {panelBtns.map(b => (
+        <button key={b.key} onClick={() => setPanel(b.key)} style={{
+          padding:'12px 20px', borderRadius:10, border: panel===b.key ? '2px solid '+b.color : '1px solid #e5e7eb',
+          background: panel===b.key ? b.color+'15' : '#fff', cursor:'pointer', minWidth:180
+        }}>
+          <div style={{fontSize:24,fontWeight:700,color:b.color}}>{b.count}</div>
+          <div style={{fontSize:13,color:'#374151',marginTop:4}}>{b.label}</div>
+        </button>
+      ))}
+    </div>
+
+    {panel==='rewrite' && <div>
+      <h3 style={{marginBottom:12}}>노출은 되지만 클릭이 없는 글 - 타이틀 변경 필요</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>URL</th>
+          <th style={thStyle}>노출</th><th style={thStyle}>순위</th><th style={thStyle}>검색어</th>
+        </tr></thead>
+        <tbody>{rewrite.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#6b7280',fontSize:12}}>{decodeURIComponent(r.page).split('/').pop() || r.page}</a>
+          </td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:600}}>{r.imp}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.pos}</td>
+          <td style={{...tdStyle,fontSize:11,color:'#6b7280',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.queries}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='top' && <div>
+      <h3 style={{marginBottom:12}}>페이지뷰 TOP 30 - 가장 많이 읽히는 글</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>URL</th>
+          <th style={thStyle}>PV</th><th style={thStyle}>세션</th>
+        </tr></thead>
+        <tbody>{topPages.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,maxWidth:350,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#6b7280',fontSize:12}}>{decodeURIComponent(r.page).split('/').pop() || r.page}</a>
+          </td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color:'#059669'}}>{r.pv}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.sess}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='seo' && <div>
+      <h3 style={{marginBottom:12}}>GA4 트래픽 있지만 구글 노출 없음 - SEO 보강 대상</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>URL</th><th style={thStyle}>PV</th>
+        </tr></thead>
+        <tbody>{seoOpp.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,maxWidth:400,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#6b7280',fontSize:12}}>{decodeURIComponent(r.page).split('/').pop() || r.page}</a>
+          </td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color:'#d97706'}}>{r.pv}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='eff' && <div>
+      <h3 style={{marginBottom:12}}>블로그별 효율 - 글 1편당 평균 PV</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>총 PV</th>
+          <th style={thStyle}>글 수</th><th style={thStyle}>글당 PV</th>
+        </tr></thead>
+        <tbody>{blogEff.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.total_pv?.toLocaleString()}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.pages}</td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color:'#059669'}}>{r.pv_per_page}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='rpm' && <div>
+      <h3 style={{marginBottom:12}}>RPM 높은 글 TOP 50 - 이런 주제가 돈이 됩니다</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>URL</th>
+          <th style={thStyle}>PV</th><th style={thStyle}>수익($)</th><th style={thStyle}>RPM($)</th>
+        </tr></thead>
+        <tbody>{rpmRanking.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            <a href={r.page} target="_blank" rel="noreferrer" style={{color:'#6b7280',fontSize:12}}>{decodeURIComponent(r.page).split('/').pop() || r.page}</a>
+          </td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.pv}</td>
+          <td style={{...tdStyle,textAlign:'right',color:'#059669'}}>${r.rev?.toFixed(2)}</td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color: r.rpm > 10 ? '#dc2626' : r.rpm > 5 ? '#f59e0b' : '#6b7280'}}>${r.rpm?.toFixed(2)}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {panel==='rev' && <div>
+      <h3 style={{marginBottom:12}}>사이트별 수익 요약 (30일) - 어디에 글을 써야 돈이 되나</h3>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr>
+          <th style={thStyle}>사이트</th><th style={thStyle}>총 PV</th>
+          <th style={thStyle}>총 수익($)</th><th style={thStyle}>RPM($)</th><th style={thStyle}>글 수</th>
+        </tr></thead>
+        <tbody>{revSummary.map((r,i) => <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+          <td style={{...tdStyle,fontWeight:600,color:'#2563eb'}}>{r.site}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.total_pv?.toLocaleString()}</td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color:'#059669'}}>${r.total_rev?.toFixed(2)}</td>
+          <td style={{...tdStyle,textAlign:'right',fontWeight:700,color: r.rpm > 5 ? '#dc2626' : r.rpm > 2 ? '#f59e0b' : '#6b7280'}}>${r.rpm?.toFixed(2)}</td>
+          <td style={{...tdStyle,textAlign:'right'}}>{r.pages}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+  </div>
+}
+
+
+const BLOG_CATEGORIES = {
+  '핫이슈 롯차 - 자동차': ['자동차','차량','SUV','세단','전기차','하이브리드','트림','연비','실구매가','시승','리콜','EV','볼보','BMW','벤츠','아우디','기아','현대','쉐보레','폭스바겐','지프','펠리세이드','셀토스','아반떼','쏘나타','투싼','산타페','스포티지','레니게이드','모하비'],
+  '캔들 트렌드 - 주식': ['주식','주가','투자','ETF','배당','금리','CMA','적금','펀드','코스피','코스닥','종목','시총','PER','매수','매도','물타기','평단가','KODEX','리츠','반도체','HBM','셀비온','테마주','증권사'],
+  '여행할 때는...': ['여행','호텔','숙소','리조트','온천','골프','CC','그린피','펜션','캠핑','관광','맛집여행','당일치기','스파','워터파크','해수욕장','계곡'],
+  'techpawz.com - 잡블로그': ['건강','의료','병원','치료','수술','보험적용','약','증상','질병','코골이','아토피','다이어트','운동','영양제','계산기','BMI','비만','체중'],
+  'kuta.informationhot.kr': ['생활','가전','가격비교','음식물처리기','공기청정기','에어컨','냉장고','세탁기','청소기','이케아','매장','매장안내','시험','자격증','공부법','대출','금융계산기','부동산','아파트','분양','청약'],
+  'informationhot.kr - 벤치마크': ['벤치마크','성능비교','스펙','노트북','스마트폰','태블릿','프로세서','그래픽카드'],
+  'biz techpawz - 인물 프로필': ['인물','프로필','나이','학력','경력','CEO','대표','연예인'],
+  'ud.informationhot.kr - hugh7973': ['정보','생활정보','꿀팁','신청방법','발급','등록','서비스'],
+  '이슈 테크포우즈 - 기술 블로그': ['AI','인공지능','ChatGPT','GPT','클라우드','코딩','프로그래밍','앱','소프트웨어','기술','IT','테크'],
+  '2.techpawz.com - 어르신 복지 혜택': ['노인','어르신','복지','연금','기초연금','요양','실버','경로'],
+  'aikorea24.kr - AI코리아24': ['AI뉴스','AI산업','AI정책'],
+  'rotcha-blog - 고객센터': ['고객센터','전화번호','AS','서비스센터','영업시간','예약','접수','상담']
+}
+
+function extractKeywords(title) {
+  return title.replace(/[^가-힣a-zA-Z0-9\s.]/g, ' ').split(/\s+/).filter(w => w.length >= 2)
+}
+
+function findBestBlog(title, exactDups, relatedDups) {
+  const titleLower = title.toLowerCase()
+  const words = extractKeywords(titleLower)
+  const scores = {}
+  const dupBlogs = new Set(exactDups.map(d => d.blog_name))
+  // 관련글이 있는 블로그는 오히려 주제 적합성 높음 → 가산점
+  const relatedBlogs = {}
+  for (const d of relatedDups) {
+    relatedBlogs[d.blog_name] = (relatedBlogs[d.blog_name] || 0) + 1
+  }
+
+  // 블로그 우선순위 (매칭 점수 동일 시 범용 블로그 우선)
+  const PRIORITY = {
+    'techpawz.com - 잡블로그': 5,
+    'kuta.informationhot.kr': 4,
+    'ud.informationhot.kr - hugh7973': 3,
+    'rotcha-blog - 고객센터': 2,
+    'informationhot.kr - 벤치마크': 1
+  }
+
+  for (const [blogName, keywords] of Object.entries(BLOG_CATEGORIES)) {
+    if (dupBlogs.has(blogName)) {
+      scores[blogName] = -1000
+      continue
+    }
+    let score = 0
+    for (const kw of keywords) {
+      const kwl = kw.toLowerCase()
+      // 타이틀 전체에서 카테고리 키워드 포함 여부 (부분 매칭)
+      if (titleLower.includes(kwl)) {
+        score += 20
+      } else {
+        for (const w of words) {
+          if (w === kwl || (w.length >= 3 && kwl.includes(w)) || (kwl.length >= 3 && w.includes(kwl))) {
+            score += 10
+          }
+        }
+      }
+    }
+    // 관련글 감점 (같은 주제 글이 있으면 카니발라이제이션 위험)
+    score -= (relatedBlogs[blogName] || 0) * 15
+    // 우선순위 가산점 (동점 시 범용 블로그 선호)
+    score += (PRIORITY[blogName] || 0) * 0.1
+    scores[blogName] = score
+  }
+
+  const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1])
+  if (sorted.length > 0 && sorted[0][1] > 1) return { name: sorted[0][0], score: sorted[0][1], conflict: false }
+  // 매칭 점수 없으면 중복 없는 범용 블로그 중 우선순위 높은 곳
+  const fallback = ['techpawz.com - 잡블로그','kuta.informationhot.kr','ud.informationhot.kr - hugh7973','rotcha-blog - 고객센터','informationhot.kr - 벤치마크']
+  for (const fb of fallback) {
+    if (!dupBlogs.has(fb)) return { name: fb, score: 0, conflict: false }
+  }
+  return { name: '미정 (모든 블로그에 중복)', score: 0, conflict: true }
+}
+
+function PublishAssign() {
+  const [input, setInput] = useState('')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  const analyze = async () => {
+    const lines = input.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+    const titles = lines
+      .filter(l => !l.startsWith('📅') && !l.startsWith('🔷') && !l.startsWith('📝') && !l.startsWith('📂'))
+      .filter(l => !/^\d{4}-\d{2}-\d{2}/.test(l))
+      .map(l => l.replace(/^🆕\s*/, '').trim())
+      .filter(l => l.length > 5 && !/^[a-z0-9\-]+$/.test(l))
+
+    if (titles.length === 0) { alert('타이틀을 붙여넣어 주세요'); return }
+    setLoading(true)
+
+    const analyzed = []
+    for (const title of titles) {
+      // 타이틀에서 핵심 검색어 추출 (고유명사/브랜드 중심)
+      const STOP = new Set(['총정리','완벽','가이드','정리','분석','비교','추천','방법','사용법','활용법','확인','안내','소개','가격','성능','장단점','트림별','스펙','보조금','모델별','시험일정','공부법','구매','필수','리뷰','포토','입문','투자','사용','전략','시설','객실','코스','층별','방문','꿀팁','이용팁','전망','이유','핵심','모아보기','수익률','유형별','증권사별','프로모션','할인','실구매가','인하','달라진','기본','사양','무료','유료','플랜','사업','주가','계약포기','속출','세금','미리','확인하기','바로','궁금하면','심하다면','알아야','해결법','치료법','끝판왕','만원대','천만원대','이던','적용','보험','가능한','도전','내려온','서울','국내','대한민국','매일','사람','시대','까지','부터','때','전','후','대','중','수','년','월','일','것','위','곳','점','편','집','번','개','첫','근교','천연','잠잘','고는','팔기','살쪘는지','수입','전기','프로','실력','정보는','블로그','낮추기','올려온','1위의','진짜'])
+      // 복합 키워드 패턴 먼저 추출 (브랜드+모델 조합)
+      const compoundPatterns = [
+        /볼보\s*EX30/i, /BMW\s*M340i?/i, /기아\s*EV3/i, /폭스바겐\s*ID\.?4/i,
+        /KODEX\s*[가-힣]+/i, /CMA\s*금리/i, /ADsP/i, /BMI/i
+      ]
+      const searchTerms = []
+      for (const pat of compoundPatterns) {
+        const m = title.match(pat)
+        if (m) searchTerms.push(m[0].trim())
+      }
+      // 3글자 이상 고유명사 추출
+      const words = title.replace(/[^가-힣a-zA-Z0-9.\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3)
+      for (const w of words) {
+        if (!STOP.has(w) && !/^\d+$/.test(w) && !/^\d+만원/.test(w) && !/^\d+인승/.test(w)) {
+          searchTerms.push(w)
+        }
+      }
+      // 중복 제거 후 최대 2개만 검색 (가장 특이한 단어 우선 = 긴 순)
+      const uniqueTerms = [...new Set(searchTerms)].sort((a,b) => b.length - a.length).slice(0, 2)
+
+      let allDups = []
+      for (const term of uniqueTerms) {
+        try {
+          const res = await api.get('/posts/search?q=' + encodeURIComponent(term))
+          const found = res.data.results || []
+          allDups.push(...found)
+        } catch(e) { /* skip */ }
+      }
+
+      // 중복 제거 + 타이틀 유사도 필터 (검색 결과 중 실제 관련 있는 것만)
+      const seen = new Set()
+      const titleWords = new Set(title.replace(/[^가-힣a-zA-Z0-9]/g, ' ').split(/\s+/).filter(w => w.length >= 2))
+      const uniqueDups = allDups.filter(d => {
+        const key = d.blog_name + '::' + d.title
+        if (seen.has(key)) return false
+        seen.add(key)
+        // 검색 결과의 타이틀과 원본 타이틀 간 핵심 단어 2개 이상 겹쳐야 진짜 중복
+        const dWords = (d.title || '').replace(/[^가-힣a-zA-Z0-9]/g, ' ').split(/\s+/).filter(w => w.length >= 2)
+        let overlap = 0
+        for (const dw of dWords) {
+          if (titleWords.has(dw) && !STOP.has(dw)) overlap++
+        }
+        return overlap >= 2
+      })
+
+      // 중복을 "동일글(회피 대상)"과 "관련글(참고용)"로 분리
+      const exactDups = []  // 핵심 키워드 3개 이상 겹침 = 거의 같은 글
+      const relatedDups = [] // 핵심 키워드 2개 겹침 = 관련 글
+      for (const d of uniqueDups) {
+        const dWords = (d.title || '').replace(/[^가-힣a-zA-Z0-9]/g, ' ').split(/\s+/).filter(w => w.length >= 2)
+        const STOP2 = new Set(['총정리','완벽','가이드','정리','분석','비교','추천','방법','가격','성능','장단점','구매','필수','리뷰','포토','입문','투자','사용','전략','확인','안내','코스','방문','꿀팁','전망','할인','실구매가','사양','무료','유료','주가','세금'])
+        let overlap = 0
+        for (const dw of dWords) {
+          if (titleWords.has(dw) && !STOP2.has(dw)) overlap++
+        }
+        if (overlap >= 3) exactDups.push(d)
+        else relatedDups.push(d)
+      }
+      // 동일글 유무와 관계없이 항상 최적 블로그 추천
+      const best = findBestBlog(title, exactDups, relatedDups)
+      if (exactDups.length > 0) {
+        const pubBlogs = [...new Set(exactDups.map(d => d.blog_name))]
+        analyzed.push({ title, duplicates: uniqueDups, exactDups, relatedDups, recommend: best, publishedIn: pubBlogs })
+      } else {
+        analyzed.push({ title, duplicates: uniqueDups, exactDups, relatedDups, recommend: best, publishedIn: [] })
+      }
+    }
+
+    setResults(analyzed)
+    setLoading(false)
+  }
+
+  const dupColor = (count) => count === 0 ? '#065f46' : count <= 2 ? '#92400e' : '#991b1b'
+  const dupBg = (count) => count === 0 ? '#ecfdf5' : count <= 2 ? '#fef3c7' : '#fef2f2'
+
+  return (
+    <div>
+      <h3 style={{marginBottom:12}}>발행 배정</h3>
+      <p style={{color:'#666',fontSize:13,marginBottom:12}}>타이틀 목록을 붙여넣고 분석 버튼을 누르세요. 중복 체크 + 최적 블로그를 추천합니다.</p>
+      <textarea value={input} onChange={e=>setInput(e.target.value)}
+        placeholder={"타이틀을 한 줄에 하나씩 붙여넣기\n\n예:\n🆕 잠잘 때 코골이 심하다면 꼭 알아야 할 해결법 5가지\n🆕 폭스바겐 ID.4 가격 성능 완벽 분석"}
+        style={{width:'100%',minHeight:200,padding:12,fontSize:13,borderRadius:8,border:'1px solid #d1d5db',fontFamily:'monospace',resize:'vertical',boxSizing:'border-box'}} />
+      <div style={{display:'flex',gap:8,margin:'12px 0'}}>
+        <button onClick={analyze} disabled={loading}
+          style={{...btnStyle, opacity:loading?0.6:1}}>
+          {loading ? '분석 중...' : '분석 (' + input.split('\n').filter(l=>l.trim().length>5).length + '건)'}
+        </button>
+        {results.length > 0 && <button onClick={()=>{setResults([]);setInput('')}} style={{...btnStyle,background:'#6b7280'}}>초기화</button>}
+      </div>
+
+      {results.length > 0 && (
+        <div>
+          <div style={{padding:12,background:'#f0f9ff',borderRadius:8,marginBottom:16,fontSize:13,color:'#1e40af'}}>
+            총 {results.length}건 | ✅ 발행완료: {results.filter(r=>r.publishedIn.length>0).length}건 | 🆕 배정필요: {results.filter(r=>r.publishedIn.length===0).length}건 | 그 중 신규: {results.filter(r=>r.publishedIn.length===0 && r.duplicates.length===0).length}건
+          </div>
+          <table style={tableStyle}>
+            <thead><tr style={{background:'#f8fafc'}}>
+              <th style={{...thStyle,width:'40%'}}>타이틀</th>
+              <th style={{...thStyle,width:'10%',textAlign:'center'}}>중복</th>
+              <th style={{...thStyle,width:'25%'}}>추천 블로그</th>
+              <th style={{...thStyle,width:'12%'}}>동일글</th>
+              <th style={{...thStyle,width:'13%'}}>관련글</th>
+            </tr></thead>
+            <tbody>{results.map((r,i)=>(
+              <tr key={i} style={{borderBottom:'1px solid #eee'}}>
+                <td style={{...tdStyle,fontSize:12}}>{r.title}</td>
+                <td style={{...tdStyle,textAlign:'center'}}>
+                  <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,
+                    color:dupColor(r.duplicates.length),background:dupBg(r.duplicates.length)}}>
+                    {r.duplicates.length === 0 ? '신규' : r.duplicates.length + '건'}
+                  </span>
+                </td>
+                <td style={{...tdStyle,fontSize:12}}>
+                  {r.publishedIn.length > 0 && <div style={{color:'#6b7280',marginBottom:2}}>✅ {r.publishedIn.join(', ')}</div>}
+                  <div style={{fontWeight:600,color:r.recommend.score>0?'#2563eb':'#9ca3af'}}>
+                    {r.publishedIn.length > 0 ? '→ ' : ''}{r.recommend.name}
+                    {r.recommend.conflict && <span style={{color:'#dc2626',marginLeft:4}}>⚠</span>}
+                  </div>
+                </td>
+                <td style={{...tdStyle,fontSize:11,color:'#dc2626'}}>
+                  {(r.exactDups||[]).length > 0
+                    ? [...new Set(r.exactDups.map(d=>d.blog_name))].join(', ')
+                    : '-'}
+                </td>
+                <td style={{...tdStyle,fontSize:11,color:'#2563eb'}}>
+                  {(r.relatedDups||[]).length > 0
+                    ? [...new Set(r.relatedDups.map(d=>d.blog_name))].join(', ')
+                    : '-'}
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function KeywordCheck() {
+  const [keyword, setKeyword] = useState('')
+  const [results, setResults] = useState([])
+  const [searched, setSearched] = useState(false)
+
+  const search = async () => {
+    if (!keyword.trim()) return
+    try {
+      const res = await api.get('/posts/search?q=' + encodeURIComponent(keyword))
+      setResults(res.data.results || [])
+      setSearched(true)
+    } catch (e) { alert('검색 실패: ' + e.message) }
+  }
+
+  return (
+    <div>
+      <h3 style={{marginBottom:12}}>키워드 중복 체크</h3>
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        <input value={keyword} onChange={e=>setKeyword(e.target.value)}
+          onKeyDown={e=>e.key==='Enter'&&search()}
+          placeholder="키워드 입력" style={inputStyle} />
+        <button onClick={search} style={btnStyle}>체크</button>
+      </div>
+      {searched && results.length === 0 && (
+        <div style={{padding:16,background:'#ecfdf5',borderRadius:8,color:'#065f46',fontWeight:600}}>
+          '{keyword}' — 쓴 적 없음! 새로운 주제입니다.
+        </div>
+      )}
+      {results.length > 0 && (
+        <div>
+          <div style={{padding:12,background:'#fef3c7',borderRadius:8,color:'#92400e',marginBottom:12,fontWeight:600}}>
+            '{keyword}' 관련 글 {results.length}건 발견
+          </div>
+          <table style={tableStyle}>
+            <thead><tr style={{background:'#f8fafc'}}>
+              <th style={thStyle}>블로그</th><th style={thStyle}>타이틀</th><th style={thStyle}>발행일</th>
+            </tr></thead>
+            <tbody>{results.slice(0,30).map((r,i)=>(
+              <tr key={i} style={{borderBottom:'1px solid #eee'}}>
+                <td style={{...tdStyle,fontSize:12,color:'#666'}}>{r.blog_name}</td>
+                <td style={tdStyle}>{r.title}</td>
+                <td style={{...tdStyle,fontSize:12,color:'#999'}}>{r.published_at}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const pillStyle = {padding:'6px 14px',borderRadius:20,border:'none',cursor:'pointer',fontSize:13,fontWeight:500}
+const btnStyle = {padding:'10px 20px',fontSize:14,borderRadius:8,border:'none',background:'#3b82f6',color:'#fff',cursor:'pointer',fontWeight:500}
+const inputStyle = {flex:1,padding:10,fontSize:14,borderRadius:8,border:'1px solid #d1d5db',outline:'none'}
+const tableStyle = {width:'100%',borderCollapse:'collapse',fontSize:13}
+const thStyle = {padding:'10px 12px',textAlign:'left',fontWeight:600,color:'#374151',borderBottom:'2px solid #e5e7eb'}
+const tdStyle = {padding:'8px 12px'}
+
+
+function PeriodReport() {
+  const [period, setPeriod] = useState(1)
+  const [data, setData] = useState(null)
+  const siteSort = useSortable(data?.site_summary,'total_rev',false)
+  const rpmSort = useSortable(data?.high_rpm_pages,'rpm',false)
+  const revSort = useSortable(data?.top_revenue_pages,'rev',false)
+  const pvSort = useSortable(data?.top_pv_pages,'pv',false)
+  const [loading, setLoading] = useState(false)
+  const periods = [{days:1,label:'어제'},{days:3,label:'3일'},{days:7,label:'7일'},{days:30,label:'30일'}]
+
+  useEffect(() => { fetchData(period) }, [period])
+
+  const fetchData = async (days) => {
+    setLoading(true)
+    try {
+      const r = await api.get('/analysis/period-report', {params:{days,limit:20}})
+      setData(r.data)
+    } catch(e) { console.error(e) }
+    setLoading(false)
+  }
+
+  if (loading) return <div style={{padding:40,textAlign:'center',color:'#6b7280'}}>로딩 중...</div>
+  if (!data) return null
+
+  const fmt = (n) => typeof n === 'number' ? n.toLocaleString() : n
+  const fmtR = (n) => typeof n === 'number' ? '$' + n.toFixed(2) : n
+  const fmtRpm = (n) => typeof n === 'number' ? '$' + n.toFixed(2) : n
+  const shortUrl = (url) => {
+    try {
+      const u = new URL(url)
+      const p = decodeURIComponent(u.pathname)
+      return u.hostname.split('.')[0] + p.slice(0,35) + (p.length>35?'...':'')
+    } catch(e) { return url.slice(0,45) }
+  }
+
+  const t = data.totals || {}
+  const periodLabel = periods.find(p=>p.days===period)?.label || period+'일'
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:20,alignItems:'center'}}>
+        <span style={{fontSize:18,fontWeight:700}}>수익 분석</span>
+        <div style={{display:'flex',gap:4,marginLeft:16}}>
+          {periods.map(p=>(
+            <button key={p.days} onClick={()=>setPeriod(p.days)}
+              style={{...pillStyle, background:period===p.days?'#3b82f6':'#f3f4f6', color:period===p.days?'#fff':'#374151'}}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:24}}>
+        <div style={{background:'#eff6ff',borderRadius:12,padding:16,textAlign:'center'}}>
+          <div style={{fontSize:12,color:'#6b7280'}}>총 PV ({periodLabel})</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#1d4ed8'}}>{fmt(t.pv)}</div>
+        </div>
+        <div style={{background:'#f0fdf4',borderRadius:12,padding:16,textAlign:'center'}}>
+          <div style={{fontSize:12,color:'#6b7280'}}>총 수익 ({periodLabel})</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#16a34a'}}>{fmtR(t.revenue)}</div>
+        </div>
+        <div style={{background:'#fefce8',borderRadius:12,padding:16,textAlign:'center'}}>
+          <div style={{fontSize:12,color:'#6b7280'}}>평균 RPM</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#ca8a04'}}>{fmtRpm(t.rpm)}</div>
+        </div>
+        <div style={{background:'#faf5ff',borderRadius:12,padding:16,textAlign:'center'}}>
+          <div style={{fontSize:12,color:'#6b7280'}}>활성 사이트</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#7c3aed'}}>{t.sites}개</div>
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,marginBottom:24}}>
+        <div>
+          <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>사이트별 수익</h3>
+          <table style={tableStyle}>
+            <thead><tr>
+              <SortTh label="사이트" sortKey="site" toggle={siteSort.toggle} indicator={siteSort.indicator}/>
+              <SortTh label="PV" sortKey="total_pv" toggle={siteSort.toggle} indicator={siteSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="수익" sortKey="total_rev" toggle={siteSort.toggle} indicator={siteSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="RPM" sortKey="_rpm" toggle={siteSort.toggle} indicator={siteSort.indicator} style={{textAlign:'right'}}/>
+            </tr></thead>
+            <tbody>
+              {(siteSort.sorted||[]).map((s,i)=>(
+                <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+                  <td style={tdStyle}><a href={'https://'+s.site} target="_blank" rel="noreferrer" style={{color:'#2563eb',textDecoration:'none'}}>{s.site}</a></td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmt(s.total_pv)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:'#16a34a',fontWeight:600}}>{fmtR(s.total_rev)}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmtRpm(s.total_pv>0?Math.round(s.total_rev/s.total_pv*1000*100)/100:0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>고RPM 페이지 (효율 상위)</h3>
+          <table style={tableStyle}>
+            <thead><tr>
+              <SortTh label="페이지" sortKey="page" toggle={rpmSort.toggle} indicator={rpmSort.indicator}/>
+              <SortTh label="PV" sortKey="pv" toggle={rpmSort.toggle} indicator={rpmSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="수익" sortKey="rev" toggle={rpmSort.toggle} indicator={rpmSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="RPM" sortKey="rpm" toggle={rpmSort.toggle} indicator={rpmSort.indicator} style={{textAlign:'right'}}/>
+            </tr></thead>
+            <tbody>
+              {(rpmSort.sorted||[]).map((p,i)=>(
+                <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+                  <td style={{...tdStyle,fontSize:12}} title={p.page}><a href={p.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',textDecoration:'none'}}>{shortUrl(p.page)}</a></td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:'#16a34a',fontWeight:600}}>{fmtR(p.rev)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:'#ca8a04',fontWeight:600}}>{fmtRpm(p.rpm)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+        <div>
+          <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>수익 상위 페이지</h3>
+          <table style={tableStyle}>
+            <thead><tr>
+              <SortTh label="페이지" sortKey="page" toggle={revSort.toggle} indicator={revSort.indicator}/>
+              <SortTh label="PV" sortKey="pv" toggle={revSort.toggle} indicator={revSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="수익" sortKey="rev" toggle={revSort.toggle} indicator={revSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="RPM" sortKey="rpm" toggle={revSort.toggle} indicator={revSort.indicator} style={{textAlign:'right'}}/>
+            </tr></thead>
+            <tbody>
+              {(revSort.sorted||[]).map((p,i)=>(
+                <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+                  <td style={{...tdStyle,fontSize:12}} title={p.page}><a href={p.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',textDecoration:'none'}}>{shortUrl(p.page)}</a></td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:'#16a34a',fontWeight:600}}>{fmtR(p.rev)}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmtRpm(p.rpm)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <h3 style={{fontSize:15,fontWeight:600,marginBottom:10}}>트래픽 상위 페이지</h3>
+          <table style={tableStyle}>
+            <thead><tr>
+              <SortTh label="페이지" sortKey="page" toggle={pvSort.toggle} indicator={pvSort.indicator}/>
+              <SortTh label="PV" sortKey="pv" toggle={pvSort.toggle} indicator={pvSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="수익" sortKey="rev" toggle={pvSort.toggle} indicator={pvSort.indicator} style={{textAlign:'right'}}/>
+              <SortTh label="RPM" sortKey="rpm" toggle={pvSort.toggle} indicator={pvSort.indicator} style={{textAlign:'right'}}/>
+            </tr></thead>
+            <tbody>
+              {(pvSort.sorted||[]).map((p,i)=>(
+                <tr key={i} style={{background:i%2?'#f9fafb':'#fff'}}>
+                  <td style={{...tdStyle,fontSize:12}} title={p.page}><a href={p.page} target="_blank" rel="noreferrer" style={{color:'#2563eb',textDecoration:'none'}}>{shortUrl(p.page)}</a></td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{fmt(p.pv)}</td>
+                  <td style={{...tdStyle,textAlign:'right',color:p.rev>0?'#16a34a':'#d1d5db'}}>{p.rev>0?fmtR(p.rev):'-'}</td>
+                  <td style={{...tdStyle,textAlign:'right'}}>{p.rpm>0?fmtRpm(p.rpm):'-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+function App() {
+  const [tab, setTab] = useState(0)
+  return (
+    <div style={{maxWidth:1000,margin:'0 auto',padding:'16px 20px',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
+      <h1 style={{fontSize:22,marginBottom:16,fontWeight:700}}>Blogdex</h1>
+      <div style={{display:'flex',gap:4,marginBottom:24,flexWrap:'wrap'}}>
+        {tabs.map((t,i)=>(
+          <button key={i} onClick={()=>setTab(i)}
+            style={{padding:'8px 16px',borderRadius:8,border:'none',
+              background:tab===i?'#3b82f6':'#f3f4f6',
+              color:tab===i?'#fff':'#374151',cursor:'pointer',fontSize:13,fontWeight:500}}>
+            {t}
+          </button>
+        ))}
+      </div>
+      {tab===0 && <CoachingDashboard/>}
+      {tab===1 && <PeriodReport/>}
+      {tab===2 && <OpportunityDashboard/>}
+      {tab===3 && <TitleCrawler/>}
+      {tab===4 && <TitleManager/>}
+      {tab===5 && <KeywordsView/>}
+      {tab===6 && <SitesView/>}
+      {tab===7 && <RewriteQueue/>}
+      {tab===8 && <KeywordCheck/>}
+      {tab===9 && <PublishAssign/>}
+      {tab===10 && <SeniorWelfare/>}
+    </div>
+  )
+}
+
+export default App
+

@@ -69,6 +69,21 @@ SITES = [
     "https://tax.informationhot.kr/",
     "https://rent.informationhot.kr/",
     "https://brand.informationhot.kr/",
+    "https://senior.informationhot.kr/",
+    "https://laptop.informationhot.kr/",
+    "https://appliance.informationhot.kr/",
+    "https://interior.informationhot.kr/",
+    "https://baby.informationhot.kr/",
+    "https://fitness.informationhot.kr/",
+    "https://tour.techpawz.com/",
+    "https://betguide.informationhot.kr/",
+    "https://fsched.informationhot.kr/",
+    "https://fstats.informationhot.kr/",
+    "https://kboplayer.informationhot.kr/",
+    "https://kboschedule.informationhot.kr/",
+    "https://kboteam.informationhot.kr/",
+    "https://proto.informationhot.kr/",
+    "https://protostats.informationhot.kr/",
 ]
 
 

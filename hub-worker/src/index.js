@@ -40,6 +40,26 @@ export default {
     const hostname = url.hostname;
     const rootDomain = getRootDomain(hostname);
 
+    // robots.txt
+    if (url.pathname === "/robots.txt") {
+      const robotsTxt = `User-agent: *
+Allow: /sites
+Sitemap: https://${hostname}/sitemap.xml`;
+      return new Response(robotsTxt, { headers: { "Content-Type": "text/plain" } });
+    }
+
+    // sitemap.xml
+    if (url.pathname === "/sitemap.xml" && rootDomain) {
+      const sites = DOMAIN_SITES[rootDomain] || [];
+      const urls = sites.map(s => `<url><loc>https://${s}/</loc></url>`).join("\n");
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>https://${hostname}/sites</loc></url>
+${urls}
+</urlset>`;
+      return new Response(xml, { headers: { "Content-Type": "application/xml" } });
+    }
+
     if (!rootDomain) {
       return new Response("Not found", { status: 404 });
     }

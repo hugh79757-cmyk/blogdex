@@ -12,6 +12,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/webmasters",
     "https://www.googleapis.com/auth/blogger.readonly",
     "https://www.googleapis.com/auth/indexing",
+    "https://www.googleapis.com/auth/siteverification",
 ]
 
 def get_credentials():
