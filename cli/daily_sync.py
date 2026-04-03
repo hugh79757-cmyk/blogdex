@@ -1071,6 +1071,78 @@ def main():
         log.error(f"수익 리포트 생성 실패: {e}")
         msg_lines.append("\n<b>💰 애드센스 수익</b>\n  데이터 조회 실패")
 
+    # 🎯 코칭 리포트 (CTR 개선 + 리라이트 대상)
+    try:
+        kw_data = api_get("/gsc/keywords", {"days": 7})
+        coach = api_get("/coaching/today")
+
+        # CTR 개선 기회: 노출 높은데 클릭 없거나 낮은 키워드
+        if isinstance(kw_data, list) and kw_data:
+            low_ctr = [k for k in kw_data
+                       if k.get("impressions", 0) >= 10
+                       and k.get("ctr", 0) < 3
+                       and k.get("avg_position", 99) <= 20]
+            low_ctr.sort(key=lambda x: x.get("impressions", 0), reverse=True)
+
+            if low_ctr:
+                msg_lines.append("")
+                msg_lines.append("<b>🎯 CTR 개선 기회</b> (노출↑ 클릭↓)")
+                msg_lines.append("<code>")
+                for k in low_ctr[:5]:
+                    q = k.get("query", "")[:25]
+                    site = k.get("site", "").replace("https://", "").replace("http://", "").split("/")[0]
+                    imp = k.get("impressions", 0)
+                    clk = k.get("clicks", 0)
+                    pos = k.get("avg_position", 0)
+                    msg_lines.append(f"#{pos:.0f} {q}")
+                    msg_lines.append(f"   {site} 노출:{imp} 클릭:{clk}")
+                msg_lines.append("</code>")
+                msg_lines.append("  💡 제목/메타 수정으로 CTR 개선 가능")
+
+        # 리라이트 대상 (노출 있는데 클릭 0, 순위 3~25)
+        if isinstance(coach, dict):
+            rw = coach.get("rewrite_targets", [])[:5]
+            if rw:
+                msg_lines.append("")
+                msg_lines.append("<b>✏️ 리라이트 추천</b> (순위 근접, 클릭 0)")
+                msg_lines.append("<code>")
+                for r in rw:
+                    q = r.get("query", "")[:25]
+                    site = r.get("site", "").replace("https://", "").replace("http://", "").split("/")[0]
+                    imp = r.get("imp", 0)
+                    pos = r.get("pos", 0)
+                    msg_lines.append(f"#{pos} {q}")
+                    msg_lines.append(f"   {site} 노출:{imp}")
+                msg_lines.append("</code>")
+                msg_lines.append("  💡 제목 리라이트 → 순위+CTR 동시 개선")
+
+            # 고RPM 페이지 (수익 효율 높은 콘텐츠)
+            top_rpm = coach.get("top_rpm_pages", [])[:3]
+            if top_rpm:
+                msg_lines.append("")
+                msg_lines.append("<b>💎 고수익 페이지 (RPM TOP)</b>")
+                for p in top_rpm:
+                    site = p.get("site", "")
+                    page = p.get("page", "").split("/")[-2] if p.get("page", "").endswith("/") else p.get("page", "").split("/")[-1]
+                    page = page[:30] if page else "?"
+                    rpm = p.get("rpm", 0)
+                    pv = p.get("pv", 0)
+                    rev = p.get("rev", 0)
+                    msg_lines.append(f"  ${rev:.2f} RPM ${rpm:.1f} ({pv}pv) {page}")
+                msg_lines.append("  💡 유사 주제로 추가 포스트 작성 추천")
+
+            # 수익 0 사이트 경고
+            zero = coach.get("zero_revenue_sites", [])
+            if zero:
+                names = ", ".join(z.get("site", "")[:20] for z in zero[:3])
+                more = f" 외 {len(zero)-3}개" if len(zero) > 3 else ""
+                msg_lines.append("")
+                msg_lines.append(f"  ⚠️ PV 있지만 수익 0: {names}{more}")
+                msg_lines.append("  💡 ads.txt/애드센스 코드 확인 필요")
+
+    except Exception as e:
+        log.error(f"코칭 리포트 생성 실패: {e}")
+
     # 쿠팡 수익
     try:
         cp = api_get("/coupang/summary", {"days": 1})
