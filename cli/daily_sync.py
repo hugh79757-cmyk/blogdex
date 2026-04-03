@@ -302,6 +302,14 @@ def api_post(path, data):
         return {"error": str(e)}
 
 
+
+def api_get(path, params=None):
+    try:
+        r = requests.get(f"{API_URL}{path}", headers=HEADERS, params=params, timeout=30)
+        return r.json()
+    except Exception as e:
+        log.error(f"API GET {path} 실패: {e}")
+        return {"error": str(e)}
 def send_telegram(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         log.warning("텔레그램 설정 없음, 알림 스킵")
@@ -983,6 +991,101 @@ def main():
                 msg_lines.append(f"  ...외 {len(no_sites)-10}개")
     except Exception as e:
         log.error(f"색인 현황 생성 실패: {e}")
+
+    # 애드센스 수익 추이
+    try:
+        rev = api_get("/analysis/revenue-summary", {"days": 7})
+        today_rev   = rev.get("today_revenue", 0)
+        yest_rev    = rev.get("yesterday_revenue", 0)
+        avg7_rev    = rev.get("avg7_revenue", 0)
+        month_rev   = rev.get("month_revenue", 0)
+        today_rpm   = rev.get("today_rpm", 0)
+        yest_rpm    = rev.get("yesterday_rpm", 0)
+        today_pv    = rev.get("today_pv", 0)
+        yest_pv     = rev.get("yesterday_pv", 0)
+        top_sites   = rev.get("top_sites", [])[:3]
+        zero_sites  = rev.get("zero_revenue_sites", [])
+        daily_rev   = rev.get("daily_revenue", [])[:7]
+
+        def chg(now, prev):
+            if prev == 0:
+                return ""
+            p = (now - prev) / prev * 100
+            arrow = "▲" if p >= 0 else "▼"
+            return f"  {arrow} {p:+.1f}%"
+
+        msg_lines.extend([
+            "",
+            "<b>💰 애드센스 수익</b>",
+            f"  오늘        ${today_rev:.2f}{chg(today_rev, yest_rev)}",
+            f"  어제        ${yest_rev:.2f}",
+            f"  7일 평균    ${avg7_rev:.2f}",
+            f"  이번달 누적 ${month_rev:.2f}",
+            "",
+            f"  RPM  오늘 ${today_rpm:.2f} / 어제 ${yest_rpm:.2f}{chg(today_rpm, yest_rpm)}",
+            f"  PV   오늘 {today_pv:,} / 어제 {yest_pv:,}{chg(today_pv, yest_pv)}",
+        ])
+
+        # 7일 수익 추이 막대 차트
+        if daily_rev:
+            msg_lines.append("")
+            msg_lines.append("<b>📊 7일 수익 추이</b>")
+            msg_lines.append("<code>")
+            days = list(reversed(daily_rev))  # 오래된 날짜부터
+            max_rev = max((d.get("rev", 0) for d in days), default=1) or 0.01
+            bar_width = 12  # 막대 최대 길이
+            for d in days:
+                date_str = (d.get("date", "") or "")[-5:]  # MM-DD
+                r = d.get("rev", 0)
+                pv = d.get("pv", 0)
+                bar_len = int(r / max_rev * bar_width) if max_rev > 0 else 0
+                bar = "█" * bar_len + "░" * (bar_width - bar_len)
+                msg_lines.append(f"{date_str} {bar} ${r:.2f} ({pv:,}pv)")
+            msg_lines.append("</code>")
+
+            # 추세 판단
+            if len(days) >= 3:
+                recent3 = sum(d.get("rev", 0) for d in days[-3:]) / 3
+                older3  = sum(d.get("rev", 0) for d in days[:3]) / 3
+                if older3 > 0:
+                    trend_pct = (recent3 - older3) / older3 * 100
+                    if trend_pct > 10:
+                        msg_lines.append(f"  📈 최근 3일 상승세 (+{trend_pct:.0f}%)")
+                    elif trend_pct < -10:
+                        msg_lines.append(f"  📉 최근 3일 하락세 ({trend_pct:.0f}%)")
+                    else:
+                        msg_lines.append(f"  ➡️ 최근 3일 보합세 ({trend_pct:+.0f}%)")
+
+        if top_sites:
+            msg_lines.append("")
+            msg_lines.append("<b>🏆 TOP 사이트 (오늘)</b>")
+            for i, s in enumerate(top_sites, 1):
+                msg_lines.append(f"  {i}. {s.get('site','')}  ${s.get('rev',0):.2f} | RPM ${s.get('rpm',0):.2f}")
+
+        if zero_sites:
+            names = ", ".join(z.get("site","") for z in zero_sites[:5])
+            more  = f" 외 {len(zero_sites)-5}개" if len(zero_sites) > 5 else ""
+            msg_lines.append(f"  ⚠️ 수익 0: {names}{more}")
+
+    except Exception as e:
+        log.error(f"수익 리포트 생성 실패: {e}")
+        msg_lines.append("\n<b>💰 애드센스 수익</b>\n  데이터 조회 실패")
+
+    # 쿠팡 수익
+    try:
+        cp = api_get("/coupang/summary", {"days": 1})
+        cp_today = cp.get("total", {})
+        cp_rev   = cp_today.get("revenue", 0)
+        cp_ord   = cp_today.get("orders", 0)
+        cp_yest  = api_get("/coupang/summary", {"days": 2}).get("total", {})
+        cp_yrev  = cp_yest.get("revenue", 0) - cp_rev  # 어제분만
+        msg_lines.extend([
+            "",
+            f"<b>🛒 쿠팡 파트너스</b>",
+            f"  오늘 ₩{cp_rev:,.0f} ({cp_ord}건){chg(cp_rev, cp_yrev)}",
+        ])
+    except Exception as e:
+        log.error(f"쿠팡 리포트 실패: {e}")
 
     msg_lines.extend(["", f"⏱ {elapsed:.1f}초 소요"])
 

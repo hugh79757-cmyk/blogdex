@@ -441,7 +441,10 @@ export default {
       if (path.startsWith("/titles/detail/") && method === "GET") {
         const titleId = path.split("/titles/detail/")[1];
         const { results: titleRows } = await env.DB.prepare("SELECT * FROM collected_titles WHERE id = ?").bind(titleId).all();
-        if (titleRows.length === 0) 
+        if (titleRows.length === 0) return json({ error: "Not found" }, 404);
+        return json(titleRows[0]);
+      }
+
     if (path === "/ga4/pageviews" && method === "POST") {
       const body = await request.json();
       const data = body.data || [];
@@ -515,18 +518,47 @@ export default {
     }
 
     if (path === "/analysis/revenue-summary" && method === "GET") {
-      const { results } = await env.DB.prepare(
-        `SELECT site,
-         SUM(pageviews) as total_pv,
-         SUM(revenue) as total_rev,
-         ROUND(SUM(revenue) / SUM(pageviews) * 1000, 2) as rpm,
-         COUNT(DISTINCT page) as pages
-         FROM ga4_pageviews
-         WHERE pageviews > 0
-         GROUP BY site
-         ORDER BY total_rev DESC`
+      // 오늘 / 어제 / 7일평균 / 이번달 누적
+      const { results: daily30 } = await env.DB.prepare(
+        "SELECT date, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews GROUP BY date ORDER BY date DESC LIMIT 30"
       ).all();
-      return json(results);
+
+      const today     = daily30[0] || {};
+      const yesterday = daily30[1] || {};
+      const avg7      = daily30.slice(0, 7).reduce((s,d) => s + (d.rev||0), 0) / Math.min(7, daily30.length);
+      const avg7pv    = daily30.slice(0, 7).reduce((s,d) => s + (d.pv||0),  0) / Math.min(7, daily30.length);
+
+      const thisMonth = (today.date || "").substring(0, 7);
+      const monthRows = daily30.filter(d => (d.date||"").startsWith(thisMonth));
+      const monthRev  = monthRows.reduce((s,d) => s + (d.rev||0), 0);
+
+      const todayRpm  = today.pv  > 0 ? Math.round(today.rev  / today.pv  * 1000 * 100) / 100 : 0;
+      const yesterRpm = yesterday.pv > 0 ? Math.round(yesterday.rev / yesterday.pv * 1000 * 100) / 100 : 0;
+
+      // TOP 3 사이트 (오늘)
+      const { results: topSites } = await env.DB.prepare(
+        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev, ROUND(SUM(revenue)/SUM(pageviews)*1000,2) as rpm FROM ga4_pageviews WHERE date = ? GROUP BY site ORDER BY rev DESC LIMIT 3"
+      ).bind(today.date || "").all();
+
+      // 수익 0 사이트 (최근 7일, pv>=50)
+      const { results: zeroSites } = await env.DB.prepare(
+        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date >= date('now', '-7 days') GROUP BY site HAVING pv >= 50 AND rev = 0"
+      ).all();
+
+      return json({
+        today_revenue:     Math.round((today.rev     || 0) * 100) / 100,
+        yesterday_revenue: Math.round((yesterday.rev || 0) * 100) / 100,
+        avg7_revenue:      Math.round(avg7  * 100) / 100,
+        month_revenue:     Math.round(monthRev * 100) / 100,
+        today_rpm:         todayRpm,
+        yesterday_rpm:     yesterRpm,
+        today_pv:          today.pv     || 0,
+        yesterday_pv:      yesterday.pv || 0,
+        avg7_pv:           Math.round(avg7pv),
+        top_sites:         topSites,
+        zero_revenue_sites: zeroSites,
+        daily_revenue:     daily30.slice(0, 7),
+      });
     }
 
     
@@ -598,137 +630,9 @@ export default {
       });
     }
 
-
-
-        const title = titleRows[0];
-        const stopWords = ['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','이','그','저','것','수','등','및','또','더','를','을','에','의','가','은','는','으로','에서','와','과','도','만','부터','까지','처럼','같은','한국','한국은','처음','처음이지','어서','어서와','텐트','밖은','유럽','맛집','레시피','만들기','방송','특집','편','일','월','년','집','곳','때','중','후','전','것','들','위','속','간','추천','방법','정리','총정리','일정','국내','해외','후기','비교','가격','순위','리뷰','소개','안내','정보','알아보기','확인','2024','2025','2026','best','top','vs'];
-        const words = title.title.split(/\s+/).filter(w => w.length >= 2 && !stopWords.includes(w.toLowerCase())).slice(0, 6);
-        
-        // 관련 포스트 - 핵심 키워드 매칭 (최소 50% 이상 + 2개 이상)
-        let relatedPosts = [];
-        const minMatch = Math.max(2, Math.ceil(words.length * 0.5));
-        if (words.length >= 2) {
-          const { results: allPosts } = await env.DB.prepare("SELECT p.*, b.name as blog_name FROM my_posts p JOIN blogs b ON p.blog_id = b.id").all();
-          for (const p of allPosts) {
-            if (!p.title) continue;
-            const matchCount = words.filter(w => p.title.includes(w)).length;
-            if (matchCount >= minMatch) {
-              relatedPosts.push({ ...p, match_count: matchCount, match_ratio: Math.round(matchCount / words.length * 100) });
-            }
-          }
-          relatedPosts.sort((a, b) => b.match_count - a.match_count || b.match_ratio - a.match_ratio);
-          relatedPosts = relatedPosts.slice(0, 10);
-        }
-        
-        // GSC 키워드 - 핵심 키워드 2개 이상 포함된 것만
-        let gscData = [];
-        if (words.length >= 2) {
-          const topWords = words.slice(0, 4);
-          const { results: allKw } = await env.DB.prepare("SELECT site, query, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(position) as avg_position FROM gsc_keywords GROUP BY site, query HAVING impressions >= 1 ORDER BY impressions DESC").all();
-          for (const kw of allKw) {
-            const matchCount = topWords.filter(w => kw.query.includes(w)).length;
-            if (matchCount >= 2) {
-              gscData.push({ ...kw, match_count: matchCount });
-            }
-          }
-          gscData.sort((a, b) => b.match_count - a.match_count || b.impressions - a.impressions);
-          gscData = gscData.slice(0, 20);
-        }
-        
-        return json({ title: title, related_posts: relatedPosts, gsc_keywords: gscData });
-      }
-
-
-      
-    if (path === "/ga4/pageviews" && method === "POST") {
-      const body = await request.json();
-      const data = body.data || [];
-      if (data.length === 0) return json({ inserted: 0 });
-      const stmt = env.DB.prepare(
-        "INSERT OR REPLACE INTO ga4_pageviews (site, date, page, pageviews, sessions, revenue) VALUES (?, ?, ?, ?, ?, ?)"
-      );
-      const chunks = [];
-      for (let i = 0; i < data.length; i += 50) {
-        chunks.push(data.slice(i, i + 50));
-      }
-      let total = 0;
-      for (const chunk of chunks) {
-        const batch = chunk.map(d => stmt.bind(d.site, d.date, d.page, d.pageviews || 0, d.sessions || 0, d.revenue || 0));
-        await env.DB.batch(batch);
-        total += chunk.length;
-      }
-      return json({ inserted: total });
-    }
-
     
-    // === 수익 기회 분석 ===
-    if (path === "/analysis/rewrite-targets" && method === "GET") {
-      const { results } = await env.DB.prepare(
-        "SELECT page, site, SUM(impressions) as imp, SUM(clicks) as clk, ROUND(AVG(position),1) as pos, GROUP_CONCAT(DISTINCT query) as queries FROM gsc_keywords WHERE page != '' GROUP BY page HAVING imp >= 10 AND clk = 0 ORDER BY imp DESC LIMIT 30"
-      ).all();
-      return json(results);
-    }
-
-    if (path === "/analysis/top-pages" && method === "GET") {
-      const { results } = await env.DB.prepare(
-        "SELECT site, page, SUM(pageviews) as pv, SUM(sessions) as sess FROM ga4_pageviews GROUP BY site, page ORDER BY pv DESC LIMIT 30"
-      ).all();
-      return json(results);
-    }
-
-    if (path === "/analysis/seo-opportunity" && method === "GET") {
-      const { results: ga4Top } = await env.DB.prepare(
-        "SELECT site, page, SUM(pageviews) as pv FROM ga4_pageviews GROUP BY site, page HAVING pv >= 10 ORDER BY pv DESC LIMIT 200"
-      ).all();
-      const { results: gscPages } = await env.DB.prepare(
-        "SELECT DISTINCT page FROM gsc_keywords WHERE page != ''"
-      ).all();
-      const gscSet = new Set(gscPages.map(r => r.page));
-      const opportunities = ga4Top.filter(r => !gscSet.has(r.page)).slice(0, 30);
-      return json(opportunities);
-    }
-
-    if (path === "/analysis/blog-efficiency" && method === "GET") {
-      const { results } = await env.DB.prepare(
-        "SELECT g.site, SUM(g.pageviews) as total_pv, COUNT(DISTINCT g.page) as pages, ROUND(1.0 * SUM(g.pageviews) / COUNT(DISTINCT g.page), 1) as pv_per_page FROM ga4_pageviews g GROUP BY g.site ORDER BY pv_per_page DESC"
-      ).all();
-      return json(results);
-    }
-
-    
-    if (path === "/analysis/rpm-ranking" && method === "GET") {
-      const { results } = await env.DB.prepare(
-        `SELECT site, page, 
-         SUM(pageviews) as pv, 
-         SUM(revenue) as rev,
-         ROUND(SUM(revenue) / SUM(pageviews) * 1000, 2) as rpm
-         FROM ga4_pageviews 
-         WHERE pageviews > 0
-         GROUP BY site, page 
-         HAVING rev > 0
-         ORDER BY rpm DESC 
-         LIMIT 50`
-      ).all();
-      return json(results);
-    }
-
-    if (path === "/analysis/revenue-summary" && method === "GET") {
-      const { results } = await env.DB.prepare(
-        `SELECT site,
-         SUM(pageviews) as total_pv,
-         SUM(revenue) as total_rev,
-         ROUND(SUM(revenue) / SUM(pageviews) * 1000, 2) as rpm,
-         COUNT(DISTINCT page) as pages
-         FROM ga4_pageviews
-         WHERE pageviews > 0
-         GROUP BY site
-         ORDER BY total_rev DESC`
-      ).all();
-      return json(results);
-    }
-
-    
-    if (path === "/coaching/today" && method === "GET") {
+    // === sync_log 엔드포인트 ===
+    if (path === "/sync/log" && method === "POST") {
       // 1) 이번 달 수익 + 일별 수익
       const { results: dailyRev } = await env.DB.prepare(
         "SELECT date, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews GROUP BY date ORDER BY date DESC LIMIT 30"
