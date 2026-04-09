@@ -4,7 +4,7 @@ import pickle
 import os
 
 CREDENTIALS_FILE = "/Users/twinssn/Projects/blogdex/cli/client_secret_hugh7973.json"
-TOKEN_FILE = "/Users/twinssn/Projects/blogdex/cli/google_token.pickle"
+TOKEN_FILE = "/Users/twinssn/Projects/blogdex/credentials/token_1_twinssn.pickle"
 
 SCOPES = [
     "https://www.googleapis.com/auth/analytics.readonly",

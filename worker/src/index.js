@@ -904,6 +904,78 @@ export default {
     }
 
 
+    // === 사이트 노출 추적 ===
+    if (path === "/exposure/init" && method === "POST") {
+      await env.DB.prepare("CREATE TABLE IF NOT EXISTS site_exposure (id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'unknown', first_impression_date TEXT, first_click_date TEXT, registered_date TEXT, latest_impressions INTEGER DEFAULT 0, latest_clicks INTEGER DEFAULT 0, week1_impressions INTEGER DEFAULT 0, week2_impressions INTEGER DEFAULT 0, week3_impressions INTEGER DEFAULT 0, week4_impressions INTEGER DEFAULT 0, status TEXT DEFAULT 'waiting', updated_at TEXT, UNIQUE(site, source))").run();
+      return json({ ok: true, message: "site_exposure table ready" });
+    }
+
+    if (path === "/exposure/update" && method === "POST") {
+      const body = await request.json();
+      const rows = body.data || [];
+      let updated = 0;
+      for (const r of rows) {
+        await env.DB.prepare(`
+          INSERT INTO site_exposure (site, source, first_impression_date, first_click_date, latest_impressions, latest_clicks, status, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(site, source) DO UPDATE SET
+            first_impression_date = COALESCE(site_exposure.first_impression_date, excluded.first_impression_date),
+            first_click_date = COALESCE(site_exposure.first_click_date, excluded.first_click_date),
+            latest_impressions = excluded.latest_impressions,
+            latest_clicks = excluded.latest_clicks,
+            status = excluded.status,
+            updated_at = datetime('now')
+        `).bind(
+          r.site, r.source,
+          r.first_impression_date || null,
+          r.first_click_date || null,
+          r.latest_impressions || 0,
+          r.latest_clicks || 0,
+          r.status || 'waiting'
+        ).run();
+        updated++;
+      }
+      return json({ ok: true, updated });
+    }
+
+    if (path === "/exposure/weekly" && method === "POST") {
+      const body = await request.json();
+      const week = body.week || 1;
+      const rows = body.data || [];
+      const col = "week" + week + "_impressions";
+      if (![1,2,3,4].includes(week)) return json({ error: "week must be 1-4" }, 400);
+      let updated = 0;
+      for (const r of rows) {
+        await env.DB.prepare(
+          `UPDATE site_exposure SET ${col} = ?, updated_at = datetime('now') WHERE site = ? AND source = ?`
+        ).bind(r.impressions || 0, r.site, r.source).run();
+        updated++;
+      }
+      return json({ ok: true, updated });
+    }
+
+    if (path === "/exposure/status" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT * FROM site_exposure ORDER BY 
+         CASE status WHEN 'growing' THEN 1 WHEN 'exposed' THEN 2 WHEN 'waiting' THEN 3 ELSE 4 END,
+         latest_impressions DESC`
+      ).all();
+      const waiting = results.filter(r => r.status === 'waiting').length;
+      const exposed = results.filter(r => r.status === 'exposed').length;
+      const growing = results.filter(r => r.status === 'growing').length;
+      return json({ total: results.length, waiting, exposed, growing, sites: results });
+    }
+
+    if (path === "/exposure/new" && method === "GET") {
+      const days = url.searchParams.get("days") || "7";
+      const { results } = await env.DB.prepare(
+        `SELECT * FROM site_exposure 
+         WHERE first_impression_date >= date('now', '-' || ? || ' days')
+         ORDER BY first_impression_date DESC`
+      ).bind(days).all();
+      return json(results);
+    }
+
     // === 사이트별 상위 페이지 ===
     if (path === "/analysis/site-pages" && method === "GET") {
       const site = url.searchParams.get("site");
