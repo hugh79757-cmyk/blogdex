@@ -116,7 +116,6 @@ SITES = [
     "https://heritage.aikorea24.kr/",
     "https://ipo.techpawz.com/",
     "https://keyword.aikorea24.kr/",
-    "https://keywords.rotcha.kr/",
     "https://michelin.techpawz.com/",
     "https://multiday.techpawz.com/",
     "https://nature.techpawz.com/",

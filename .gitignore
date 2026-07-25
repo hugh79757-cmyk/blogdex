@@ -39,6 +39,12 @@ publish_config.yaml
 .DS_Store
 *.DS_Store
 
+# ── 임시 / 결과물 / 아티팩트 ──
+cli/*result.txt
+cli/deploy_*.sh
+.reasonix/
+.env-*
+
 # ── 백업 / 로그 / 스냅샷 ──
 backup*.py
 backup*.txt
@@ -46,5 +52,6 @@ cli/snapshots/
 cli/snapshots_backup/
 cli/coupang_data/
 cli/logs/
+logs/
 *.bak
 *.bak.*

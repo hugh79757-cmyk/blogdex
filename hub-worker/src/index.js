@@ -4,8 +4,7 @@ const DOMAIN_SITES = {
     "tour1.rotcha.kr", "travel1.rotcha.kr", "travel2.rotcha.kr",
     "tour2.rotcha.kr", "tour3.rotcha.kr", "tco.rotcha.kr",
     "deal.rotcha.kr", "compare.rotcha.kr", "guide.rotcha.kr",
-    "ev.rotcha.kr", "sports.rotcha.kr", "kbo.rotcha.kr",
-    "keywords.rotcha.kr",
+    "ev.rotcha.kr", "sports.rotcha.kr",     "kbo.rotcha.kr",
   ],
   "techpawz.com": [
     "techpawz.com", "2.techpawz.com",

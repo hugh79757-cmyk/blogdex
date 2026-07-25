@@ -67,7 +67,6 @@ PROPERTIES = {
     "531071264": "ev.rotcha.kr",
     "531022174": "guide.rotcha.kr",
     "531050852": "kbo.rotcha.kr",
-    "531142752": "keywords.rotcha.kr",
     "531059838": "sports.rotcha.kr",
     "531012250": "tco.rotcha.kr",
     "531057733": "tour1.rotcha.kr",
