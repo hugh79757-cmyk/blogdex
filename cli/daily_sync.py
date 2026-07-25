@@ -630,8 +630,17 @@ def sync_bing():
 
 
 @retry(max_attempts=3, delay_seconds=5)
+def _get_account_for_site(site_name: str) -> int:
+    """사이트명으로 GSC 계정 번호 반환 (1=twinssn, 2=informationhot, 3=aikorea24)"""
+    if "informationhot.kr" in site_name:
+        return 2
+    elif "aikorea24.kr" in site_name:
+        return 3
+    return 1  # rotcha.kr, techpawz.com, tistory 등
+
+
 def sync_gsc():
-    """GSC 데이터 수집 → 로컬 스냅샷 + D1 업로드"""
+    """GSC 데이터 수집 → 로컬 스냅샷 + D1 업로드 (3계정 지원)"""
     log.info("=== GSC 동기화 시작 ===")
 
     end = datetime.now() - timedelta(days=3)
@@ -642,9 +651,6 @@ def sync_gsc():
         log.info(f"{date_str} 스냅샷 이미 존재, 스킵")
         return {"status": "skipped", "date": date_str, "row_count": 0}
 
-    creds = get_credentials()
-    service = build("webmasters", "v3", credentials=creds)
-
     snapshot = {"date": date_str, "collected_at": datetime.now().isoformat(), "sites": {}}
     total_clicks = 0
     total_impressions = 0
@@ -652,107 +658,52 @@ def sync_gsc():
     d1_daily_rows = []
     d1_keyword_rows = []
 
+    # 사이트 → 계정 매핑
+    account_sites = {1: [], 2: [], 3: []}
     for site_url in SITES:
         name = site_url.replace("https://", "").rstrip("/")
-        try:
-            resp = service.searchanalytics().query(
-                siteUrl=site_url,
-                body={
-                    "startDate": date_str,
-                    "endDate": date_str,
-                    "dimensions": ["query", "page"],
-                    "rowLimit": 500,
-                }
-            ).execute()
+        account = _get_account_for_site(name)
+        account_sites[account].append(site_url)
 
-            rows = resp.get("rows", [])
-            clicks = sum(r["clicks"] for r in rows)
-            impressions = sum(r["impressions"] for r in rows)
-            ctr = (clicks / impressions * 100) if impressions > 0 else 0
+    for account in sorted(account_sites.keys()):
+        sites = account_sites[account]
+        if not sites:
+            continue
 
-            total_clicks += clicks
-            total_impressions += impressions
+        creds = get_credentials(account=account)
+        service = build("webmasters", "v3", credentials=creds)
+        acct_names = {1: "twinssn", 2: "informationhot", 3: "aikorea24"}
+        log.info(f"  [계정 {account}: {acct_names[account]}] {len(sites)}개 사이트 처리")
 
-            # D1 일별 요약
-            d1_daily_rows.append({
-                "site": name, "date": date_str,
-                "clicks": clicks, "impressions": impressions,
-                "ctr": round(ctr, 2)
-            })
+        for site_url in sites:
+            name = site_url.replace("https://", "").rstrip("/")
+            try:
+                resp = service.searchanalytics().query(
+                    siteUrl=site_url,
+                    body={
+                        "startDate": date_str,
+                        "endDate": date_str,
+                        "dimensions": ["query", "page"],
+                        "rowLimit": 500,
+                    }
+                ).execute()
 
-            # 키워드 데이터
-            keywords = []
-            sorted_rows = sorted(rows, key=lambda r: r["impressions"], reverse=True)[:100]
-            for row in sorted_rows:
-                kw = {
-                    "query": row["keys"][0],
-                    "page": row["keys"][1] if len(row["keys"]) > 1 else "",
-                    "clicks": int(row["clicks"]),
-                    "impressions": int(row["impressions"]),
-                    "ctr": round(row["ctr"] * 100, 2),
-                    "position": round(row["position"], 1)
-                }
-                keywords.append(kw)
-                d1_keyword_rows.append({
-                    "site": name, "date": date_str,
-                    "query": kw["query"], "page": kw["page"],
-                    "clicks": kw["clicks"],
-                    "impressions": kw["impressions"],
-                    "ctr": kw["ctr"], "position": kw["position"]
-                })
-
-            total_keywords += len(keywords)
-            snapshot["sites"][name] = {
-                "clicks": clicks, "impressions": impressions,
-                "ctr": round(ctr, 2), "top_keywords": keywords
-            }
-            log.info(f"  {name}: 클릭 {clicks}, 노출 {impressions}, 키워드 {len(keywords)}")
-
-        except Exception as e:
-            snapshot["sites"][name] = {"error": str(e)}
-            log.error(f"  {name}: {e}")
-
-    snapshot["total"] = {
-        "clicks": total_clicks, "impressions": total_impressions,
-        "ctr": round((total_clicks / total_impressions * 100) if total_impressions > 0 else 0, 2)
-    }
-
-    # 로컬 스냅샷 저장
-    with open(snapshot_file, "w", encoding="utf-8") as f:
-        json.dump(snapshot, f, ensure_ascii=False, indent=2)
-    log.info(f"스냅샷 저장: {snapshot_file}")
-
-    # === 도메인 속성으로 서브도메인 데이터 수집 ===
-    for domain_prop, subdomains in DOMAIN_PROPERTIES.items():
-        try:
-            resp = service.searchanalytics().query(
-                siteUrl=domain_prop,
-                body={
-                    "startDate": date_str,
-                    "endDate": date_str,
-                    "dimensions": ["query", "page"],
-                    "rowLimit": 5000,
-                }
-            ).execute()
-            all_rows = resp.get("rows", [])
-
-            for subdomain in subdomains:
-                sub_rows = [r for r in all_rows if subdomain in r.get("keys", ["", ""])[1]]
-                clicks = sum(r["clicks"] for r in sub_rows)
-                impressions = sum(r["impressions"] for r in sub_rows)
+                rows = resp.get("rows", [])
+                clicks = sum(r["clicks"] for r in rows)
+                impressions = sum(r["impressions"] for r in rows)
                 ctr = (clicks / impressions * 100) if impressions > 0 else 0
 
                 total_clicks += clicks
                 total_impressions += impressions
 
                 d1_daily_rows.append({
-                    "site": subdomain, "date": date_str,
+                    "site": name, "date": date_str,
                     "clicks": clicks, "impressions": impressions,
                     "ctr": round(ctr, 2)
                 })
 
                 keywords = []
-                sorted_rows = sorted(sub_rows, key=lambda r: r["impressions"], reverse=True)[:100]
+                sorted_rows = sorted(rows, key=lambda r: r["impressions"], reverse=True)[:100]
                 for row in sorted_rows:
                     kw = {
                         "query": row["keys"][0],
@@ -764,7 +715,7 @@ def sync_gsc():
                     }
                     keywords.append(kw)
                     d1_keyword_rows.append({
-                        "site": subdomain, "date": date_str,
+                        "site": name, "date": date_str,
                         "query": kw["query"], "page": kw["page"],
                         "clicks": kw["clicks"],
                         "impressions": kw["impressions"],
@@ -772,16 +723,77 @@ def sync_gsc():
                     })
 
                 total_keywords += len(keywords)
-                snapshot["sites"][subdomain] = {
+                snapshot["sites"][name] = {
                     "clicks": clicks, "impressions": impressions,
                     "ctr": round(ctr, 2), "top_keywords": keywords
                 }
-                log.info(f"  {subdomain} (via {domain_prop}): 클릭 {clicks}, 노출 {impressions}, 키워드 {len(keywords)}")
+                log.info(f"  {name}: 클릭 {clicks}, 노출 {impressions}, 키워드 {len(keywords)}")
 
-        except Exception as e:
-            log.error(f"  {domain_prop}: {e}")
-            for subdomain in subdomains:
-                snapshot["sites"][subdomain] = {"error": str(e)}
+            except Exception as e:
+                snapshot["sites"][name] = {"error": str(e)}
+                log.error(f"  {name}: {e}")
+
+        # 도메인 속성(sc-domain:) 전용 — account 1(twinssn)만
+        if account == 1 and DOMAIN_PROPERTIES:
+            for domain_prop, subdomains in DOMAIN_PROPERTIES.items():
+                try:
+                    resp = service.searchanalytics().query(
+                        siteUrl=domain_prop,
+                        body={
+                            "startDate": date_str,
+                            "endDate": date_str,
+                            "dimensions": ["query", "page"],
+                            "rowLimit": 5000,
+                        }
+                    ).execute()
+                    all_rows = resp.get("rows", [])
+
+                    for subdomain in subdomains:
+                        sub_rows = [r for r in all_rows if subdomain in r.get("keys", ["", ""])[1]]
+                        clicks = sum(r["clicks"] for r in sub_rows)
+                        impressions = sum(r["impressions"] for r in sub_rows)
+                        ctr = (clicks / impressions * 100) if impressions > 0 else 0
+
+                        total_clicks += clicks
+                        total_impressions += impressions
+
+                        d1_daily_rows.append({
+                            "site": subdomain, "date": date_str,
+                            "clicks": clicks, "impressions": impressions,
+                            "ctr": round(ctr, 2)
+                        })
+
+                        keywords = []
+                        sorted_rows = sorted(sub_rows, key=lambda r: r["impressions"], reverse=True)[:100]
+                        for row in sorted_rows:
+                            kw = {
+                                "query": row["keys"][0],
+                                "page": row["keys"][1] if len(row["keys"]) > 1 else "",
+                                "clicks": int(row["clicks"]),
+                                "impressions": int(row["impressions"]),
+                                "ctr": round(row["ctr"] * 100, 2),
+                                "position": round(row["position"], 1)
+                            }
+                            keywords.append(kw)
+                            d1_keyword_rows.append({
+                                "site": subdomain, "date": date_str,
+                                "query": kw["query"], "page": kw["page"],
+                                "clicks": kw["clicks"],
+                                "impressions": kw["impressions"],
+                                "ctr": kw["ctr"], "position": kw["position"]
+                            })
+
+                        total_keywords += len(keywords)
+                        snapshot["sites"][subdomain] = {
+                            "clicks": clicks, "impressions": impressions,
+                            "ctr": round(ctr, 2), "top_keywords": keywords
+                        }
+                        log.info(f"  {subdomain} (via {domain_prop}): 클릭 {clicks}, 노출 {impressions}, 키워드 {len(keywords)}")
+
+                except Exception as e:
+                    log.error(f"  {domain_prop}: {e}")
+                    for subdomain in subdomains:
+                        snapshot["sites"][subdomain] = {"error": str(e)}
 
     # 스냅샷 total 업데이트
     snapshot["total"] = {
