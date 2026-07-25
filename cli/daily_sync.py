@@ -78,6 +78,7 @@ SITES = [
     "https://kuta.informationhot.kr/",
     "https://stock.informationhot.kr/",
     "https://ud.informationhot.kr/",
+    "https://tv-show.informationhot.kr/",
     "https://techpawz.com/",
     "https://issue.techpawz.com/",
     "https://2.techpawz.com/",

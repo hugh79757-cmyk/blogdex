@@ -32,6 +32,7 @@ INDEXING_API_URL = "https://indexing.googleapis.com/v3/urlNotifications:publish"
 QUOTA_PER_DAY = 200
 
 # daily_sync.py와 동일한 사이트 목록
+# daily_sync.py와 동기화 (2026-07-25)
 SITES = [
     "https://5.informationhot.kr/",
     "https://65.informationhot.kr/",
@@ -74,7 +75,14 @@ SITES = [
     "https://appliance.informationhot.kr/",
     "https://interior.informationhot.kr/",
     "https://baby.informationhot.kr/",
+    "https://beauty.informationhot.kr/",
+    "https://camping.informationhot.kr/",
     "https://fitness.informationhot.kr/",
+    "https://health.informationhot.kr/",
+    "https://kitchen.informationhot.kr/",
+    "https://pet.informationhot.kr/",
+    "https://pick.informationhot.kr/",
+    "https://rank.informationhot.kr/",
     "https://tour.techpawz.com/",
     "https://betguide.informationhot.kr/",
     "https://fsched.informationhot.kr/",
@@ -84,6 +92,7 @@ SITES = [
     "https://kboteam.informationhot.kr/",
     "https://proto.informationhot.kr/",
     "https://protostats.informationhot.kr/",
+    "https://protoking.informationhot.kr/",
     "https://6.informationhot.kr/",
     "https://7.informationhot.kr/",
     "https://8.informationhot.kr/",
@@ -113,6 +122,7 @@ SITES = [
     "https://nature.techpawz.com/",
     "https://phototour.techpawz.com/",
     "https://sector.techpawz.com/",
+    "https://simprotection.informationhot.kr/",
     "https://tours.techpawz.com/",
     "https://trains.techpawz.com/",
     "https://transfers.techpawz.com/",
@@ -120,6 +130,8 @@ SITES = [
     "https://visafree.techpawz.com/",
     "https://walking.techpawz.com/",
     "https://watersports.techpawz.com/",
+    "https://biz.techpawz.com/",
+    "https://persona.aikorea24.kr/",
 ]
 
 
