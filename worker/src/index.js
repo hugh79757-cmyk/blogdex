@@ -332,12 +332,17 @@ export default {
         const coupang = await env.DB.prepare(
           "SELECT SUM(revenue) as revenue, SUM(orders) as orders FROM coupang_revenue WHERE date >= date('now', '-' || ? || ' days')"
         ).bind(days).first();
+        const bing = await env.DB.prepare(
+          "SELECT SUM(clicks) as clicks, SUM(impressions) as impressions FROM bing_daily WHERE date >= date('now', '-' || ? || ' days')"
+        ).bind(days).first();
         return json({
           blogs: blogs?.count || 0,
           posts: posts?.count || 0,
           titles: titles?.count || 0,
           gsc_clicks: gsc?.clicks || 0,
           gsc_impressions: gsc?.impressions || 0,
+          bing_clicks: bing?.clicks || 0,
+          bing_impressions: bing?.impressions || 0,
           coupang_revenue: coupang?.revenue || 0,
           coupang_orders: coupang?.orders || 0,
           days: parseInt(days),

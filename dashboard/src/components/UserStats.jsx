@@ -19,7 +19,7 @@ const StatCard = ({ label, value, unit = '', color = 'var(--text-primary)' }) =>
 /**
  * 블로그 성능 요약 통계.
  *
- * @param {{ stats: { totalClicks, totalImpressions, avgCtr, totalBlogs, totalPosts, coupangRevenue, coupangOrders } }} props
+ * @param {{ stats: { totalClicks, totalImpressions, avgCtr, totalBlogs, totalPosts, coupangRevenue, coupangOrders, bingClicks, bingImpressions } }} props
  */
 const UserStats = ({ stats }) => {
   return (
@@ -28,12 +28,16 @@ const UserStats = ({ stats }) => {
       gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
       gap: '16px', marginBottom: '24px'
     }}>
-      <StatCard label="총 클릭" value={stats.totalClicks} color="#3b82f6" />
-      <StatCard label="총 노출" value={stats.totalImpressions} color="#10b981" />
+      <div style={{ gridColumn: '1 / -1', fontSize: 13, fontWeight: 600, color: '#6b7280', marginBottom: -8 }}>Google Search Console</div>
+      <StatCard label="GSC 클릭" value={stats.totalClicks} color="#3b82f6" />
+      <StatCard label="GSC 노출" value={stats.totalImpressions} color="#10b981" />
       <StatCard label="평균 CTR" value={stats.avgCtr} color="#f59e0b" />
       <StatCard label="관리 블로그" value={stats.totalBlogs} color="#8b5cf6" />
       <StatCard label="전체 글" value={stats.totalPosts} color="#ec4899" />
       <StatCard label="쿠팡 수익" value={stats.coupangRevenue} unit="₩" color="#ef4444" />
+      <div style={{ gridColumn: '1 / -1', fontSize: 13, fontWeight: 600, color: '#6b7280', marginTop: 8, marginBottom: -8 }}>Bing Webmaster</div>
+      <StatCard label="Bing 클릭" value={stats.bingClicks} color="#3b82f6" />
+      <StatCard label="Bing 노출" value={stats.bingImpressions} color="#10b981" />
     </div>
   );
 };

@@ -8,11 +8,12 @@ import api from '../api';
  * @returns {{ data: object|null, loading: boolean, error: Error|null }}
  *
  * data.shape:
- *   summary:     { blogs, posts, titles, gsc_clicks, gsc_impressions, coupang_revenue, coupang_orders }
+ *   summary:     { blogs, posts, titles, gsc_clicks, gsc_impressions, bing_clicks, bing_impressions, coupang_revenue, coupang_orders }
  *   revSummary:  { today_revenue, yesterday_revenue, avg7_revenue, month_revenue,
  *                  today_pv, yesterday_pv, daily_revenue: [{date, pv, rev}, ...],
  *                  top_sites, zero_revenue_sites }
  *   gscDaily:    [{ date, clicks, impressions, ctr }, ...]
+ *   bingDaily:   [{ date, clicks, impressions }, ...]
  *   coupang:     { daily: [...], totals: { clicks, orders, amount, revenue } }
  */
 export function useDashboardData(days = 30) {
@@ -30,14 +31,16 @@ export function useDashboardData(days = 30) {
       api.get(`/dashboard/summary?days=${days}`),
       api.get(`/analysis/revenue-summary`),
       api.get(`/gsc/daily?days=${days}`),
+      api.get(`/bing/daily?days=${days}`),
       api.get(`/coupang/summary?days=${days}`),
     ])
-      .then(([summary, revSummary, gscDaily, coupang]) => {
+      .then(([summary, revSummary, gscDaily, bingDaily, coupang]) => {
         if (cancelled) return;
         setData({
           summary: summary.data,
           revSummary: revSummary.data,
           gscDaily: gscDaily.data,
+          bingDaily: bingDaily.data,
           coupang: coupang.data,
         });
       })

@@ -39,13 +39,15 @@ const Dashboard = () => {
       ? (s.gsc_clicks / s.gsc_impressions * 100).toFixed(2) + '%'
       : '0%';
     return {
-      totalClicks:     s.gsc_clicks ?? 0,
-      totalImpressions: s.gsc_impressions ?? 0,
-      avgCtr:          ctr,
-      totalBlogs:      s.blogs ?? 0,
-      totalPosts:      s.posts ?? 0,
-      coupangRevenue:  s.coupang_revenue ?? 0,
-      coupangOrders:   s.coupang_orders ?? 0,
+      totalClicks:      s.gsc_clicks ?? 0,
+      totalImpressions:  s.gsc_impressions ?? 0,
+      avgCtr:           ctr,
+      totalBlogs:       s.blogs ?? 0,
+      totalPosts:       s.posts ?? 0,
+      coupangRevenue:   s.coupang_revenue ?? 0,
+      coupangOrders:    s.coupang_orders ?? 0,
+      bingClicks:       s.bing_clicks ?? 0,
+      bingImpressions:  s.bing_impressions ?? 0,
     };
   }, [data]);
 
