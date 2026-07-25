@@ -31,17 +31,7 @@ from dotenv import load_dotenv
 load_dotenv(PROJECT_DIR.parent / ".env")  # 루트 .env (Bing, OpenAI 등)
 load_dotenv(PROJECT_DIR / ".env")          # cli/.env (텔레그램 등)
 
-# aikorea24 네이버 API 키 로드
-_env_sh = "/Users/twinssn/Projects/aikorea24/api_test/.env.sh"
-if os.path.exists(_env_sh):
-    with open(_env_sh) as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if _line and not _line.startswith("#") and "=" in _line:
-                if _line.startswith("export "):
-                    _line = _line[7:]
-                _k, _v = _line.split("=", 1)
-                os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+
 
 from config import API_URL, API_KEY
 from google_auth import get_credentials
@@ -399,111 +389,6 @@ def skip_task() -> dict:
 
 
 # ══════════════════════════════════════════════════════════════
-
-
-def sync_senior():
-    """노인복지 뉴스 수집 → D1 저장 + 브리핑 HTML 생성"""
-    import urllib.request
-    import urllib.parse
-    from html import unescape
-    import subprocess
-    import time
-    import httpx
-
-    log.info("=== 노인복지 뉴스 수집 시작 ===")
-
-    NAVER_ID = os.environ.get("NAVER_CLIENT_ID", "")
-    NAVER_SECRET = os.environ.get("NAVER_CLIENT_SECRET", "")
-
-    if not NAVER_ID or not NAVER_SECRET:
-        log.error("네이버 API 키 없음")
-        return {"status": "error", "row_count": 0}
-
-    SENIOR_QUERIES = [
-        "AI 노인 돌봄 서비스", "AI 시니어 디지털 교육", "AI 치매 예방 기술",
-        "AI 고령자 복지 정책", "AI 요양 로봇 서비스", "노인 디지털 격차 해소",
-        "독거노인 돌봄 정책", "기초연금 인상 변경", "노인 일자리 지원사업",
-        "요양보호사 처우 개선",
-    ]
-
-    senior_kw = [
-        "노인", "시니어", "고령", "돌봄", "치매", "요양", "실버", "어르신",
-        "경로", "독거", "노후", "간병", "기초연금", "요양보호사", "복지관",
-        "경로당", "노인복지", "장기요양", "노인학대", "치매안심", "노인일자리",
-    ]
-    skip_kw = ["부동산", "아파트", "분양", "주식", "증권", "코인"]
-
-    def clean(text):
-        if not text: return ""
-        text = unescape(text)
-        text = re.sub(r"<[^>]+>", "", text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
-
-    # 1. 네이버 뉴스 수집
-    results = []
-    for q in SENIOR_QUERIES:
-        encoded = urllib.parse.quote(q)
-        url = f"https://openapi.naver.com/v1/search/news.json?query={encoded}&display=10&sort=date"
-        req = urllib.request.Request(url, headers={
-            "X-Naver-Client-Id": NAVER_ID,
-            "X-Naver-Client-Secret": NAVER_SECRET,
-        })
-        try:
-            data = json.loads(urllib.request.urlopen(req, timeout=10).read())
-            for item in data.get("items", []):
-                title = clean(item["title"])
-                desc = clean(item["description"])
-                full = (title + " " + desc).lower()
-                if any(s in full for s in skip_kw):
-                    continue
-                if not any(kw in full for kw in senior_kw):
-                    continue
-                results.append({
-                    "title": title, "link": item["link"],
-                    "description": desc[:200], "source": "네이버뉴스",
-                    "category": "senior",
-                    "pub_date": datetime.now().strftime("%Y-%m-%d"),
-                })
-        except Exception as e:
-            log.error(f"  노인복지 '{q}' 실패: {e}")
-
-    # 중복 제거
-    seen = set()
-    unique = []
-    for r in results:
-        if r["title"] not in seen:
-            seen.add(r["title"])
-            unique.append(r)
-    log.info(f"  수집: {len(unique)}건 (중복 제거 후)")
-
-    # 2. D1 저장 (aikorea24-db)
-    saved = 0
-    if unique:
-        try:
-            env = os.environ.copy()
-            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + env.get("PATH", "")
-            for item in unique:
-                title_escaped = item["title"].replace("'", "''")
-                desc_escaped = item["description"].replace("'", "''")
-                link_escaped = item["link"].replace("'", "''")
-                cmd = (
-                    f"INSERT OR IGNORE INTO news (title, link, description, source, category, pub_date) "
-                    f"VALUES ('{title_escaped}', '{link_escaped}', '{desc_escaped}', "
-                    f"'{item['source']}', 'senior', '{item['pub_date']}')"
-                )
-                r = subprocess.run(
-                    ["npx", "wrangler", "d1", "execute", "aikorea24-db", "--remote", "--command", cmd],
-                    capture_output=True, text=True,
-                    cwd="/Users/twinssn/Projects/aikorea24", env=env, timeout=30,
-                )
-                if r.returncode == 0:
-                    saved += 1
-            log.info(f"  D1 저장: {saved}건")
-        except Exception as e:
-            log.error(f"  D1 저장 실패: {e}")
-
-    return {"status": "ok", "date": datetime.now().strftime("%Y-%m-%d"), "row_count": saved}
 
 
 def sync_bing():
@@ -925,7 +810,6 @@ def main():
     skip_ga4     = "--skip-ga4" in sys.argv
     skip_bing    = "--skip-bing" in sys.argv
     skip_coupang = "--skip-coupang" in sys.argv
-    skip_senior  = "--skip-senior" in sys.argv
 
     # ── 태스크 실행 (각각 독립적, 실패 격리) ──
     # run_task 내에서 monitor.record() 호출
@@ -952,7 +836,6 @@ def main():
     _run_sync_task("gsc",    sync_gsc)        if not skip_gsc     else None
     _run_sync_task("ga4",    sync_ga4, 3)      if not skip_ga4     else None
     _run_sync_task("bing",   sync_bing)        if not skip_bing    else None
-    _run_sync_task("senior", sync_senior)      if not skip_senior  else None
 
     # 포스트 동기화 (Hugo/Astro/WordPress/Blogger)
     def sync_posts():
