@@ -503,22 +503,6 @@ def sync_senior():
         except Exception as e:
             log.error(f"  D1 저장 실패: {e}")
 
-    # 3. 브리핑 HTML 생성
-    try:
-        env = os.environ.copy()
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + env.get("PATH", "")
-        r = subprocess.run(
-            ["/Users/twinssn/Projects/aikorea24/api_test/venv/bin/python3",
-             "/Users/twinssn/Projects/aikorea24/api_test/senior_briefing.py"],
-            capture_output=True, text=True, env=env, timeout=300,
-        )
-        if r.returncode == 0:
-            log.info("  브리핑 HTML 생성 완료")
-        else:
-            log.error(f"  브리핑 생성 실패: {r.stderr[:200]}")
-    except Exception as e:
-        log.error(f"  브리핑 생성 실패: {e}")
-
     return {"status": "ok", "date": datetime.now().strftime("%Y-%m-%d"), "row_count": saved}
 
 
