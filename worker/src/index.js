@@ -1,15 +1,48 @@
+// ── CORS allowlist ──
+const ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  // TODO: add your production dashboard domain here, e.g.:
+  // "https://blogdex-dashboard.pages.dev",
+];
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // Allow non-browser clients (CLI, curl)
+  return ALLOWED_ORIGINS.includes(origin);
+}
+
+// Request-scoped origin — set at the top of each request handler
+let _reqOrigin = '';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
 
+    // ── 요청 크기 제한 ──
+    const contentLength = request.headers.get('content-length');
+    if (contentLength && parseInt(contentLength) > 1_000_000) {
+      return new Response(JSON.stringify({ error: "Payload too large" }), {
+        status: 413,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    const origin = request.headers.get("Origin") || "";
+    _reqOrigin = isAllowedOrigin(origin) ? origin : "";
+
     if (method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
+    // CHANGED: CORS origin check for non-preflight requests
+    if (origin && !_reqOrigin) {
+      return json({ error: "Origin not allowed" }, 403);
+    }
+
     const authHeader = request.headers.get("X-API-Key");
-    if (authHeader !== "blogdex-secret-key") {
+    if (authHeader !== env.BLOGDEX_API_KEY) {
       return json({ error: "Unauthorized" }, 401);
     }
 
@@ -21,7 +54,7 @@ export default {
         if (!query) return json({ error: "q parameter required" }, 400);
         const cid = env.NAVER_CLIENT_ID;
         const csec = env.NAVER_CLIENT_SECRET;
-        if (!cid || !csec) return json({ error: "Naver API keys not configured", has_id: !!cid, has_secret: !!csec }, 500);
+        if (!cid || !csec) return json({ error: "Naver API keys not configured" }, 500); // CHANGED: removed internal detail leak
         const naverUrl = "https://openapi.naver.com/v1/search/blog.json?" +
           new URLSearchParams({ query, display, sort: "sim" });
         const naverRes = await fetch(naverUrl, {
@@ -508,9 +541,9 @@ export default {
          SUM(revenue) as rev,
          ROUND(SUM(revenue) / SUM(pageviews) * 1000, 2) as rpm
          FROM ga4_pageviews 
-         WHERE pageviews > 0
+         WHERE date >= date('now', '-90 days') AND pageviews > 0
          GROUP BY site, page 
-         HAVING rev > 0
+         HAVING rev > 0 AND pv >= 3
          ORDER BY rpm DESC 
          LIMIT 50`
       ).all();
@@ -630,77 +663,7 @@ export default {
       });
     }
 
-    
-    // === sync_log 엔드포인트 ===
-    if (path === "/sync/log" && method === "POST") {
-      // 1) 이번 달 수익 + 일별 수익
-      const { results: dailyRev } = await env.DB.prepare(
-        "SELECT date, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews GROUP BY date ORDER BY date DESC LIMIT 30"
-      ).all();
 
-      // 2) 사이트별 수익 요약
-      const { results: siteRev } = await env.DB.prepare(
-        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev, COUNT(DISTINCT page) as pages, COUNT(DISTINCT date) as days FROM ga4_pageviews WHERE date >= date('now', '-30 days') AND (revenue > 0 OR pageviews > 0) GROUP BY site ORDER BY rev DESC"
-      ).all();
-
-      // 3) 어제 vs 그저께 비교 (사이트별)
-      const dates = dailyRev.map(d => d.date).slice(0, 2);
-      let yesterdayData = [], beforeData = [];
-      if (dates.length >= 2) {
-        const { results: y } = await env.DB.prepare(
-          "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date = ? GROUP BY site"
-        ).bind(dates[0]).all();
-        yesterdayData = y;
-        const { results: b } = await env.DB.prepare(
-          "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date = ? GROUP BY site"
-        ).bind(dates[1]).all();
-        beforeData = b;
-      }
-
-      // 4) 타이틀 리라이트 대상 TOP 10
-      const { results: rewriteTargets } = await env.DB.prepare(
-        "SELECT site, query, page, SUM(impressions) as imp, ROUND(AVG(position),1) as pos FROM gsc_keywords WHERE date >= date('now', '-30 days') AND page != '' AND impressions >= 3 GROUP BY site, query, page HAVING SUM(clicks) = 0 AND AVG(position) BETWEEN 3 AND 25 ORDER BY imp DESC LIMIT 10"
-      ).all();
-
-      // 5) RPM 상위 키워드 (경쟁사 리서치 가이드용)
-      const { results: topRpm } = await env.DB.prepare(
-        "SELECT g.site, g.page, SUM(g.pageviews) as pv, SUM(g.revenue) as rev, ROUND(SUM(g.revenue)/SUM(g.pageviews)*1000,2) as rpm FROM ga4_pageviews g WHERE g.date >= date('now', '-30 days') AND g.pageviews >= 5 AND g.revenue > 0 GROUP BY g.site, g.page ORDER BY rpm DESC LIMIT 10"
-      ).all();
-
-      // 6) 수익 0 사이트 (최근 7일 기준)
-      const { results: recent7d } = await env.DB.prepare(
-        "SELECT site, SUM(pageviews) as pv, SUM(revenue) as rev FROM ga4_pageviews WHERE date >= date('now', '-7 days') GROUP BY site HAVING pv >= 50 AND rev = 0"
-      ).all();
-      const zeroRev = recent7d;
-
-      // 목표 계산
-      const thisMonth = dailyRev.filter(d => d.date.startsWith(dates[0]?.substring(0,7) || ''));
-      const monthRev = thisMonth.reduce((sum, d) => sum + (d.rev || 0), 0);
-      const monthDays = thisMonth.length;
-      const monthTarget = 300; // $300 목표
-      const dailyNeeded = monthDays > 0 ? (monthTarget - monthRev) / (30 - monthDays) : 10;
-
-      return json({
-        summary: {
-          month_revenue: Math.round(monthRev * 100) / 100,
-          month_target: monthTarget,
-          month_progress: Math.round(monthRev / monthTarget * 100),
-          month_days: monthDays,
-          daily_avg: Math.round(monthRev / (monthDays || 1) * 100) / 100,
-          daily_needed: Math.round(dailyNeeded * 100) / 100,
-          yesterday_rev: dailyRev[0]?.rev || 0,
-          yesterday_pv: dailyRev[0]?.pv || 0,
-        },
-        daily_revenue: dailyRev,
-        site_summary: siteRev,
-        yesterday_compare: { yesterday: yesterdayData, before: beforeData },
-        rewrite_targets: rewriteTargets,
-        top_rpm_pages: topRpm,
-        zero_revenue_sites: zeroRev,
-      });
-    }
-
-    
     // === sync_log 엔드포인트 ===
     if (path === "/sync/log" && method === "POST") {
       const body = await request.json();
@@ -754,7 +717,7 @@ export default {
       start.setDate(start.getDate() - days);
       const startStr = start.toISOString().slice(0, 10);
 
-      // 사이트별 요약
+      // 사이트별 요약 (ga4_pageviews에 데이터 있는 사이트)
       const { results: siteSummary } = await env.DB.prepare(
         `SELECT site,
                 SUM(pageviews) as total_pv,
@@ -766,6 +729,22 @@ export default {
          GROUP BY site
          ORDER BY total_rev DESC`
       ).bind(startStr).all();
+
+      // blogs 테이블에서 모든 URL 조회 → 데이터 없는 사이트도 0으로 포함
+      const { results: allBlogs } = await env.DB.prepare(
+        `SELECT DISTINCT url FROM blogs WHERE url LIKE 'https://%'`
+      ).all();
+      const ga4Sites = new Set(siteSummary.map(r => r.site));
+      const skipDomains = new Set(['www.blogger.com', 'blogger.com', 'www.google.com']);
+      for (const b of allBlogs) {
+        try {
+          const domain = new URL(b.url).hostname;
+          if (!ga4Sites.has(domain) && !skipDomains.has(domain)) {
+            siteSummary.push({ site: domain, total_pv: 0, total_rev: 0, pages: 0, days_active: 0 });
+            ga4Sites.add(domain);
+          }
+        } catch (_) { /* skip malformed URLs */ }
+      }
 
       // 페이지별 상위 수익 (RPM 포함)
       const { results: topPages } = await env.DB.prepare(
@@ -993,23 +972,91 @@ export default {
         const total_rev = results.reduce((a, r) => a + (r.revenue || 0), 0);
         return json({ site, days, total_pv, total_revenue: Math.round(total_rev * 100) / 100, pages: results });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        console.error(e); // CHANGED: log full error server-side
+        return json({ error: "Internal server error" }, 500); // CHANGED: sanitized
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  /admin/* — 관리자 전용 엔드포인트
+    //  ⚠️  배포 후 비활성화 권장:
+    //     댓글 처리 or env.ENABLE_ADMIN === "true" 조건부 처리
+    // ════════════════════════════════════════════════════════════
+
+    if (path === "/admin/migrate" && method === "POST") {
+      // ── 보안: 추가 보호 (env 플래그로 비활성화 가능) ──
+      if (env.DISABLE_ADMIN === "true") {
+        return json({ error: "Admin endpoints are disabled" }, 403);
+      }
+
+      const body = await request.json();
+      const migration = body.migration || "";
+      const sql = body.sql || "";
+
+      if (!migration || !sql) {
+        return json({ error: "migration and sql fields required" }, 400);
+      }
+
+      // ── SQL 안전성 검사: DROP TABLE 차단 ──
+      if (/drop\s+table/i.test(sql)) {
+        return json({ error: "DROP TABLE is not allowed via this endpoint" }, 400);
+      }
+
+      try {
+        // Execute each statement in the migration
+        // D1's db.exec() can handle multiple statements separated by semicolons
+        const stmts = sql.split(";").map(s => s.trim()).filter(s => s.length > 0);
+        for (const stmt of stmts) {
+          await env.DB.prepare(stmt).run();
+        }
+
+        return json({
+          applied: true,
+          version: migration,
+          message: `Migration ${migration} applied successfully`,
+        });
+      } catch (e) {
+        console.error(`[ADMIN] Migration ${migration} failed:`, e);
+        return json({
+          applied: false,
+          version: migration,
+          error: "Internal server error",
+        }, 500);
       }
     }
 
     return json({ error: "Not found" }, 404);
     } catch (e) {
-      return json({ error: e.message }, 500);
+      console.error(e); // CHANGED: log full error server-side
+      return json({ error: "Internal server error" }, 500); // CHANGED: sanitized
     }
   }
 };
 
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-API-Key"
+// ── 보안 응답 헤더 (공통) ──
+function secureBaseHeaders() {
+  const headers = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
   };
+  if (_reqOrigin) {
+    headers["Access-Control-Allow-Origin"] = _reqOrigin;
+    headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key";
+  }
+  return headers;
+}
+
+function corsHeaders() {
+  const headers = secureBaseHeaders();
+  // OPTIONS preflight needs Allow headers regardless of origin
+  if (!headers["Access-Control-Allow-Origin"]) {
+    headers["Access-Control-Allow-Origin"] = _reqOrigin || "*";
+    headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key";
+  }
+  return headers;
 }
 
 function json(data, status = 200) {
@@ -1017,9 +1064,7 @@ function json(data, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, X-API-Key"
+      ...secureBaseHeaders(),
     }
   });
 }

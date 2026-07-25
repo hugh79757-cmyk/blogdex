@@ -1,31 +1,50 @@
+# ── 의존성 / 빌드 ──
 node_modules/
 __pycache__/
 *.pyc
-.env
 .venv/
 venv/
 .wrangler/
+
+# ── 환경변수 / 보안 설정 ──
+.env
 *.pickle
+*.pickle.bak*
+cli/.env
+
+# ── OAuth 토큰 파일 (JSON 형식, 절대 커밋 금지) ──
+# token_*.json 파일에는 OAuth refresh token이 포함되어 있습니다.
+# 노출 시 즉시 Google Cloud Console에서 토큰을 폐기하세요.
+credentials/token_*.json
+cli/google_token.json
+*.json.lock
+
+# ── 클라이언트 시크릿 (JSON, 절대 커밋 금지) ──
+# ⚠️ client_secret_*.json, ADSENSE_CREDENTIALS_*.json 도 커밋 금지
+# 이 파일들은 Google OAuth 앱 자격증명으로, 토큰과 별개로 보호해야 합니다.
+credentials/client_secret_*.json
+credentials/ADSENSE_CREDENTIALS_*.json
+cli/client_secret_*.json
+
+# ── 일반 JSON (위 예외에 해당하지 않는 JSON은 무시) ──
 *.json
 !package.json
 !package-lock.json
 !wrangler.toml
+
+# ── 설정 파일 ──
 publish_config.yaml
-.DS_Storenode_modules/
-__pycache__/
-*.pyc
-.env
-.venv/
-venv/
-.wrangler/
+
+# ── OS 파일 ──
+.DS_Store
+*.DS_Store
+
+# ── 백업 / 로그 / 스냅샷 ──
 backup*.py
 backup*.txt
 cli/snapshots/
+cli/snapshots_backup/
 cli/coupang_data/
-cli/.env
-.DS_Store
 cli/logs/
 *.bak
-*.DS_Store
 *.bak.*
-*.pickle.bak*

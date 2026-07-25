@@ -55,7 +55,9 @@ app = Flask(__name__)
 CORS(app)
 
 API_URL = "https://blogdex-api.hugh79757.workers.dev"
-API_KEY = "blogdex-secret-key"
+API_KEY = os.environ.get("BLOGDEX_API_KEY", "")
+if not API_KEY:
+    raise RuntimeError("BLOGDEX_API_KEY environment variable is not set.")
 TIMEOUT = 15
 CONCURRENT = 10
 

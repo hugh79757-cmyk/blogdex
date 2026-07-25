@@ -1,6 +1,8 @@
--- v0.3.0 스키마 확장
+-- Migration: 002_gsc_coupang
+-- Description: GSC daily/keyword tables + Coupang revenue
+-- Source: worker/schema_v2.sql
+-- Applied: tracked in _migrations table
 
--- GSC 일별 사이트 요약
 CREATE TABLE IF NOT EXISTS gsc_daily (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     site TEXT NOT NULL,
@@ -12,7 +14,6 @@ CREATE TABLE IF NOT EXISTS gsc_daily (
     UNIQUE(site, date)
 );
 
--- GSC 키워드 일별 데이터
 CREATE TABLE IF NOT EXISTS gsc_keywords (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     site TEXT NOT NULL,
@@ -27,7 +28,6 @@ CREATE TABLE IF NOT EXISTS gsc_keywords (
     UNIQUE(site, date, query, page)
 );
 
--- 쿠팡 파트너스 수익
 CREATE TABLE IF NOT EXISTS coupang_revenue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT NOT NULL,
@@ -42,7 +42,6 @@ CREATE TABLE IF NOT EXISTS coupang_revenue (
     UNIQUE(date, sub_id, product)
 );
 
--- 인덱스
 CREATE INDEX IF NOT EXISTS idx_gsc_daily_site_date ON gsc_daily(site, date);
 CREATE INDEX IF NOT EXISTS idx_gsc_keywords_site_date ON gsc_keywords(site, date);
 CREATE INDEX IF NOT EXISTS idx_gsc_keywords_query ON gsc_keywords(query);

@@ -1,7 +1,7 @@
-import pickle
 import sys
 from datetime import datetime, timedelta
 from googleapiclient.discovery import build
+from google_auth import get_adsense_credentials
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -9,23 +9,10 @@ from rich import box
 console = Console()
 
 ACCOUNTS = [
-    {
-        "name": "twinssn",
-        "token_path": "/Users/twinssn/Projects/blogdex/credentials/token_1_twinssn.pickle",
-    },
-    {
-        "name": "informationhot",
-        "token_path": "/Users/twinssn/Projects/blogdex/credentials/token_2_informationhot.pickle",
-    },
-    {
-        "name": "aikorea24",
-        "token_path": "/Users/twinssn/Projects/blogdex/credentials/token_3_aikorea24.pickle",
-    },
+    {"name": "twinssn"},
+    {"name": "informationhot"},
+    {"name": "aikorea24"},
 ]
-
-def get_creds(token_path):
-    with open(token_path, "rb") as f:
-        return pickle.load(f)
 
 def fetch_revenue(service, acct_id, start, end):
     """기간별 도메인 수익 딕셔너리 반환 {domain: earnings}"""
@@ -63,9 +50,9 @@ def run():
     # 계정별 × 기간별 데이터 수집
     all_data = {}  # {domain: [p0_earnings, p1_earnings, p2_earnings]}
 
-    for acct in ACCOUNTS:
+    for idx, acct in enumerate(ACCOUNTS):
         try:
-            creds   = get_creds(acct["token_path"])
+            creds   = get_adsense_credentials(idx + 1)
             service = build("adsense", "v2", credentials=creds)
             acct_id = service.accounts().list().execute()["accounts"][0]["name"]
 

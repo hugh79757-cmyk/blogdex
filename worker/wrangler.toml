@@ -5,6 +5,11 @@ compatibility_date = "2024-01-01"
 [build]
 command = ""
 
+# ⚠️ BLOGDEX_API_KEY must be set as a Worker secret before deployment:
+#   npx wrangler secret put BLOGDEX_API_KEY
+# Generate a key with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+# This key must match the one used by CLI scripts (cli/.env or env export).
+
 [[d1_databases]]
 binding = "DB"
 database_name = "blogdex_db"

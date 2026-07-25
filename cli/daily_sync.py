@@ -46,6 +46,7 @@ if os.path.exists(_env_sh):
 from config import API_URL, API_KEY
 from google_auth import get_credentials
 from googleapiclient.discovery import build
+from monitor import SyncMonitor, check_data_quality
 
 # 로깅 설정
 LOG_DIR = PROJECT_DIR / "logs"
@@ -112,7 +113,14 @@ SITES = [
     "https://appliance.informationhot.kr/",
     "https://interior.informationhot.kr/",
     "https://baby.informationhot.kr/",
+    "https://beauty.informationhot.kr/",
+    "https://camping.informationhot.kr/",
     "https://fitness.informationhot.kr/",
+    "https://health.informationhot.kr/",
+    "https://kitchen.informationhot.kr/",
+    "https://pet.informationhot.kr/",
+    "https://pick.informationhot.kr/",
+    "https://rank.informationhot.kr/",
     "https://tour.techpawz.com/",
     "https://betguide.informationhot.kr/",
     "https://fsched.informationhot.kr/",
@@ -122,6 +130,7 @@ SITES = [
     "https://kboteam.informationhot.kr/",
     "https://proto.informationhot.kr/",
     "https://protostats.informationhot.kr/",
+    "https://protoking.informationhot.kr/",
     "https://6.informationhot.kr/",
     "https://7.informationhot.kr/",
     "https://8.informationhot.kr/",
@@ -158,6 +167,9 @@ SITES = [
     "https://visafree.techpawz.com/",
     "https://walking.techpawz.com/",
     "https://watersports.techpawz.com/",
+    "https://simprotection.informationhot.kr/",
+    "https://biz.techpawz.com/",
+    "https://persona.aikorea24.kr/",
 ]
 
 # 도메인 속성: 서브도메인 데이터를 한번에 조회 (403 우회)
@@ -194,7 +206,6 @@ GA4_PROPERTIES = {
     "510545640": "issuetwinkle-tv.informationhot.kr",
     "520033547": "simprotection.informationhot.kr",
     "520495436": "tv-show.informationhot.kr",
-    "489950024": "mimdiomcat.tistory.com",
     "502880375": "2.techpawz.com",
     "520459800": "travel.rotcha.kr",
     "518592752": "zodiac.techpawz.com",
@@ -202,24 +213,6 @@ GA4_PROPERTIES = {
     "502581984": "info.techpawz.com",
     "524828505": "cert.aikorea24.kr",
     "524509961": "aikorea24.kr",
-    "407673873": "achaanstree.tistory.com",
-    "407723312": "foodwater.tistory.com",
-    "529365364": "tour1.rotcha.kr",
-    "529354403": "travel1.rotcha.kr",
-    "529351202": "travel2.rotcha.kr",
-    "529355746": "tour2.rotcha.kr",
-    "529368606": "tour3.rotcha.kr",
-    "526695780": "sports.rotcha.kr",
-    "529135373": "tco.rotcha.kr",
-    "529150625": "deal.rotcha.kr",
-    "529150626": "compare.rotcha.kr",
-    "529158015": "guide.rotcha.kr",
-    "529144463": "ev.rotcha.kr",
-    "529144464": "dividend.techpawz.com",
-    "529144841": "etf.techpawz.com",
-    "529088575": "sector.techpawz.com",
-    "529152161": "ipo.techpawz.com",
-    "529142332": "finance.techpawz.com",
     "529715626": "apt.informationhot.kr",
     "529752187": "apply.informationhot.kr",
     "529742117": "tax.informationhot.kr",
@@ -266,7 +259,6 @@ GA4_PROPERTIES = {
     "531047182": "dining.techpawz.com",
     "531081619": "dividend.techpawz.com",
     "531050510": "etf.techpawz.com",
-    "531024940": "eurail.techpawz.com",
     "531123458": "ferry.techpawz.com",
     "531118185": "finance.techpawz.com",
     "531167909": "foodtour.techpawz.com",
@@ -276,12 +268,30 @@ GA4_PROPERTIES = {
     "531142752": "keywords.rotcha.kr",
     "531139671": "multiday.techpawz.com",
     "531055811": "nature.techpawz.com",
-    "531036743": "phototour.techpawz.com",
     "531161435": "sector.techpawz.com",
     "531012256": "transfers.techpawz.com",
     "531135786": "visafree.techpawz.com",
     "531135787": "walking.techpawz.com",
     "531139672": "watersports.techpawz.com",
+    "531035921": "airlines.techpawz.com",
+    "531044776": "airports.techpawz.com",
+    "531068317": "esim.techpawz.com",
+    "531065272": "flights.techpawz.com",
+    "531066288": "michelin.techpawz.com",
+    "531081222": "tours.techpawz.com",
+    "531082945": "trains.techpawz.com",
+    "531039430": "visa.techpawz.com",
+    "543474092": "eurail.techpawz.com",
+    "543510271": "phototour.techpawz.com",
+    "543441626": "rank.informationhot.kr",
+    "543364949": "protoking.informationhot.kr",
+    "543475157": "pick.informationhot.kr",
+    "543483108": "pet.informationhot.kr",
+    "543505819": "kitchen.informationhot.kr",
+    "543536240": "health.informationhot.kr",
+    "543471477": "camping.informationhot.kr",
+    "543478347": "beauty.informationhot.kr",
+    "538315250": "persona.aikorea24.kr",
 }
 
 # Bing Webmaster API 키 (계정별)
@@ -323,6 +333,73 @@ def send_telegram(message):
         }, timeout=10)
     except Exception as e:
         log.error(f"텔레그램 전송 실패: {e}")
+
+
+# ══════════════════════════════════════════════════════════════
+#  태스크 러너 — 재시도 + 예외 격리
+# ══════════════════════════════════════════════════════════════
+
+import functools
+import time as _time
+
+
+def retry(max_attempts=3, delay_seconds=5):
+    """
+    재시도 데코레이터 — exponential backoff 적용.
+    네트워크 요청이 많은 태스크(GSC, GA4)에 사용.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_attempts:
+                        wait = delay_seconds * (2 ** (attempt - 1))
+                        log.warning(
+                            f"[RETRY] {func.__name__} ({attempt}/{max_attempts}) "
+                            f"실패: {e}. {wait:.0f}초 후 재시도..."
+                        )
+                        _time.sleep(wait)
+                    else:
+                        log.error(
+                            f"[RETRY] {func.__name__} 최종 실패 "
+                            f"({max_attempts}/{max_attempts}): {e}"
+                        )
+                        raise
+            raise last_exception  # type: ignore
+        return wrapper
+    return decorator
+
+
+def run_task(name: str, fn, *args, **kwargs) -> dict:
+    """
+    태스크 실행 래퍼 — 예외를 결과 dict로 변환하여 격리.
+    실패해도 다음 태스크가 계속 실행됩니다.
+
+    Returns:
+        dict: {"status": "ok"|"error"|"skipped", ...}
+    """
+    try:
+        log.info(f"─" * 40)
+        log.info(f"▶ {name} 시작")
+        result = fn(*args, **kwargs)
+        log.info(f"✅ {name} 완료")
+        return result
+    except Exception as e:
+        log.error(f"❌ {name} 실패: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+def skip_task() -> dict:
+    """--skip 플래그로 스킵된 태스크의 결과"""
+    return {"status": "skipped"}
+
+
+# ══════════════════════════════════════════════════════════════
 
 
 def sync_senior():
@@ -551,6 +628,7 @@ def sync_bing():
     }
 
 
+@retry(max_attempts=3, delay_seconds=5)
 def sync_gsc():
     """GSC 데이터 수집 → 로컬 스냅샷 + D1 업로드"""
     log.info("=== GSC 동기화 시작 ===")
@@ -735,15 +813,22 @@ def sync_gsc():
     }
 
 
+@retry(max_attempts=3, delay_seconds=5)
 def sync_ga4(days=3):
     """GA4 페이지뷰 수집 → D1 업로드"""
     log.info("=== GA4 동기화 시작 ===")
 
     from google.analytics.data_v1beta import BetaAnalyticsDataClient
     from google.analytics.data_v1beta.types import RunReportRequest, DateRange, Dimension, Metric
+    from google.analytics.admin import AnalyticsAdminServiceClient
 
     creds = get_credentials()
     client = BetaAnalyticsDataClient(credentials=creds)
+    admin = AnalyticsAdminServiceClient(credentials=creds)
+
+    # KRW→USD 환율 (고정, 2026-06 기준)
+    KRW_PER_USD = 1350.0
+
     end_date = datetime.now() - timedelta(days=1)
     start_date = end_date - timedelta(days=days-1)
     start_str = start_date.strftime("%Y-%m-%d")
@@ -751,10 +836,15 @@ def sync_ga4(days=3):
 
     all_data = []
     total_pv = 0
-    total_rev = 0.0
+    total_rev_usd = 0.0
 
     for prop_id, domain in GA4_PROPERTIES.items():
         try:
+            # 속성 통화 확인
+            prop = admin.get_property(name=f"properties/{prop_id}")
+            currency = prop.currency_code
+            to_usd = 1.0 / KRW_PER_USD if currency == "KRW" else 1.0
+
             request = RunReportRequest(
                 property=f"properties/{prop_id}",
                 date_ranges=[DateRange(start_date=start_str, end_date=end_str)],
@@ -768,14 +858,14 @@ def sync_ga4(days=3):
             )
             response = client.run_report(request=request)
             site_pv = 0
-            site_rev = 0.0
+            site_rev_usd = 0.0
             for row in response.rows:
                 path = row.dimension_values[0].value
                 date = row.dimension_values[1].value
                 date_fmt = f"{date[:4]}-{date[4:6]}-{date[6:8]}"
                 pageviews = int(row.metric_values[0].value)
                 sessions = int(row.metric_values[1].value)
-                revenue = float(row.metric_values[2].value)
+                revenue = float(row.metric_values[2].value) * to_usd
                 all_data.append({
                     "site": domain, "date": date_fmt,
                     "page": f"https://{domain}{path}",
@@ -783,10 +873,10 @@ def sync_ga4(days=3):
                     "revenue": round(revenue, 6),
                 })
                 site_pv += pageviews
-                site_rev += revenue
+                site_rev_usd += revenue
             total_pv += site_pv
-            total_rev += site_rev
-            log.info(f"  {domain}: {site_pv:,} PV, ${site_rev:.2f}")
+            total_rev_usd += site_rev_usd
+            log.info(f"  {domain}: {site_pv:,} PV, ${site_rev_usd:.4f}")
         except Exception as e:
             log.error(f"  {domain}: {e}")
 
@@ -796,12 +886,12 @@ def sync_ga4(days=3):
             batch = all_data[i:i+500]
             api_post("/ga4/pageviews", {"data": batch})
 
-    log.info(f"GA4 완료: {len(all_data)}건, {total_pv:,} PV, ${total_rev:.2f}")
+    log.info(f"GA4 완료: {len(all_data)}건, {total_pv:,} PV, ${total_rev_usd:.4f}")
 
     return {
         "status": "ok", "date_range": f"{start_str}~{end_str}",
         "row_count": len(all_data), "total_pv": total_pv,
-        "total_rev": round(total_rev, 2)
+        "total_rev": round(total_rev_usd, 6)
     }
 
 
@@ -819,350 +909,101 @@ def record_sync_log(source, result, site=None):
 
 
 def main():
+    """
+    Blogdex 일일 동기화 메인 엔트리포인트.
+
+    각 태스크는 run_task()로 격리되어 실행됩니다.
+    한 태스크가 실패해도 나머지 태스크는 계속 실행됩니다.
+    --skip-* 플래그로 개별 태스크를 생략할 수 있습니다.
+    """
     start_time = datetime.now()
     log.info("=" * 50)
     log.info("Blogdex 일일 동기화 시작")
     log.info("=" * 50)
 
-    results = {}
+    # ── 모니터 초기화 ──
+    monitor = SyncMonitor(pipeline_name="Blogdex Daily Sync")
+    log.info(f"SyncMonitor: Telegram={'활성' if monitor._telegram_enabled else '비활성'}")
 
-    # GSC 동기화
-    try:
-        gsc_result = sync_gsc()
-        results["gsc"] = gsc_result
-        record_sync_log("gsc", gsc_result)
-    except Exception as e:
-        log.error(f"GSC 동기화 실패: {e}")
-        results["gsc"] = {"status": "error", "message": str(e)}
-        record_sync_log("gsc", {"status": "error", "row_count": 0, "date": "N/A"})
+    # ── CLI 플래그 파싱 ──
+    skip_gsc     = "--skip-gsc" in sys.argv
+    skip_ga4     = "--skip-ga4" in sys.argv
+    skip_bing    = "--skip-bing" in sys.argv
+    skip_coupang = "--skip-coupang" in sys.argv
+    skip_senior  = "--skip-senior" in sys.argv
 
-    # GA4 동기화
-    try:
-        ga4_result = sync_ga4(days=3)
-        results["ga4"] = ga4_result
-        record_sync_log("ga4", ga4_result)
-    except Exception as e:
-        log.error(f"GA4 동기화 실패: {e}")
-        results["ga4"] = {"status": "error", "message": str(e)}
-        record_sync_log("ga4", {"status": "error", "row_count": 0, "date": "N/A"})
+    # ── 태스크 실행 (각각 독립적, 실패 격리) ──
+    # run_task 내에서 monitor.record() 호출
 
-    # Bing 동기화
-    try:
-        bing_result = sync_bing()
-        results["bing"] = bing_result
-        record_sync_log("bing", bing_result)
-    except Exception as e:
-        log.error(f"Bing 동기화 실패: {e}")
-        results["bing"] = {"status": "error", "message": str(e)}
-        record_sync_log("bing", {"status": "error", "row_count": 0, "date": "N/A"})
+    def _run_sync_task(step_name: str, fn, *args, **kwargs):
+        """run_task + monitor 연동 래퍼"""
+        monitor.start_step(step_name)
+        result = run_task(step_name, fn, *args, **kwargs)
+        status = result.get("status", "error")
+        msg = result.get("message", "")
+        record_sync_log(step_name, result)
+        # 데이터 품질 검사 (count 필드가 있으면)
+        count = result.get("row_count", None)
+        if count is not None and status == "ok":
+            check_data_quality(monitor, step_name, count)
+        elif status == "ok":
+            monitor.record(step_name, "ok", msg, result)
+        elif status == "skipped":
+            monitor.record(step_name, "skipped", "건너뜀")
+        else:
+            monitor.record(step_name, "error", msg, result)
+        return result
 
-    # 노인복지 뉴스 수집 + 브리핑
-    try:
-        senior_result = sync_senior()
-        results["senior"] = senior_result
-        record_sync_log("senior", senior_result)
-    except Exception as e:
-        log.error(f"노인복지 수집 실패: {e}")
-        results["senior"] = {"status": "error", "message": str(e)}
-        record_sync_log("senior", {"status": "error", "row_count": 0, "date": "N/A"})
-
+    _run_sync_task("gsc",    sync_gsc)        if not skip_gsc     else None
+    _run_sync_task("ga4",    sync_ga4, 3)      if not skip_ga4     else None
+    _run_sync_task("bing",   sync_bing)        if not skip_bing    else None
+    _run_sync_task("senior", sync_senior)      if not skip_senior  else None
 
     # 포스트 동기화 (Hugo/Astro/WordPress/Blogger)
-    try:
+    def sync_posts():
         from sync_hugo import run as sync_hugo_posts
         from sync_astro import run as sync_astro_posts
         from sync_wordpress import run as sync_wordpress_posts
         from sync_blogger import run as sync_blogger_posts
-
-        log.info("포스트 동기화 시작 (Hugo/Astro/WordPress/Blogger)")
         sync_hugo_posts()
         sync_astro_posts()
         sync_wordpress_posts()
         sync_blogger_posts()
-        results["posts"] = {"status": "ok"}
-        record_sync_log("posts", {"status": "ok", "row_count": 0, "date": datetime.now().strftime("%Y-%m-%d")})
-        log.info("포스트 동기화 완료")
-    except Exception as e:
-        log.error(f"포스트 동기화 실패: {e}")
-        results["posts"] = {"status": "error", "message": str(e)}
-        record_sync_log("posts", {"status": "error", "row_count": 0, "date": "N/A"})
+        return {"status": "ok", "row_count": 0}
+    _run_sync_task("posts", sync_posts)
 
     # Google Indexing API 제출
-    try:
+    def sync_indexing():
         from index_submit import run as run_indexing
-        log.info("Indexing API 제출 시작")
         run_indexing(max_per_site=3)
-        results["indexing"] = {"status": "ok"}
-        log.info("Indexing API 제출 완료")
-    except Exception as e:
-        log.error(f"Indexing API 실패: {e}")
-        results["indexing"] = {"status": "error", "message": str(e)}
+        return {"status": "ok", "row_count": 0}
+    _run_sync_task("indexing", sync_indexing)
 
-    # 소요 시간
-    elapsed = (datetime.now() - start_time).total_seconds()
-    log.info(f"완료: {elapsed:.1f}초 소요")
+    # 쿠팡
+    monitor.start_step("coupang")
+    if not skip_coupang:
+        cp_result = api_get("/coupang/summary", {"days": 1})
+        if "error" in cp_result:
+            monitor.record("coupang", "error", cp_result.get("error", "조회 실패"))
+        else:
+            total = cp_result.get("total", {})
+            rev = total.get("revenue", 0)
+            orders = total.get("orders", 0)
+            monitor.record("coupang", "ok", f"₩{rev:,.0f} ({orders}건)", cp_result)
+    else:
+        monitor.record("coupang", "skipped", "건너뜀")
 
-    # 텔레그램 알림
-    gsc = results.get("gsc", {})
-    ga4 = results.get("ga4", {})
-    msg_lines = [
-        "<b>📊 Blogdex 일일 리포트</b>",
-        "",
-        f"<b>GSC</b> ({gsc.get('date', 'N/A')})",
-        f"  상태: {gsc.get('status', 'unknown')}",
-    ]
-    if gsc.get("status") == "ok":
-        msg_lines.append(f"  클릭: {gsc.get('clicks', 0):,} | 노출: {gsc.get('impressions', 0):,}")
+    # ── 소요 시간 ──
+    elapsed = datetime.now() - start_time
+    log.info(f"완료: {elapsed.total_seconds():.1f}초 소요")
 
-    msg_lines.extend([
-        "",
-        f"<b>GA4</b> ({ga4.get('date_range', 'N/A')})",
-        f"  상태: {ga4.get('status', 'unknown')}",
-    ])
-    if ga4.get("status") == "ok":
-        msg_lines.append(f"  PV: {ga4.get('total_pv', 0):,} | 수익: ${ga4.get('total_rev', 0):.2f}")
+    # ── 리포트 전송 + 저장 ──
+    monitor.send_daily_report()
+    monitor.save_report()
 
-    # 검색 노출 현황 + 변화 추적
-    try:
-        import glob
-        all_gsc_files = sorted(glob.glob(str(SNAPSHOT_DIR / "gsc_*.json")))
 
-        def calc_gsc_exposure(file_list):
-            sites = {}
-            for sf in file_list:
-                sd = json.load(open(sf))
-                for sname, sinfo in sd.get("sites", {}).items():
-                    if sname not in sites:
-                        sites[sname] = 0
-                    sites[sname] += sinfo.get("impressions", 0)
-            return sites
-
-        # 최근 7일 vs 그 이전 7일
-        recent_files = all_gsc_files[-7:]
-        prev_files = all_gsc_files[-14:-7] if len(all_gsc_files) >= 14 else []
-
-        gsc_recent = calc_gsc_exposure(recent_files)
-        gsc_prev = calc_gsc_exposure(prev_files)
-
-        bing_stats = results.get("bing", {}).get("site_stats", {})
-
-        all_s = sorted(set(list(gsc_recent.keys()) + list(bing_stats.keys())))
-        ok_sites = []
-        no_sites = []
-        for s in all_s:
-            g = gsc_recent.get(s, 0)
-            b = bing_stats.get(s, {}).get("keywords", 0)
-            if g > 0 or b > 0:
-                ok_sites.append(s)
-            else:
-                no_sites.append(s)
-
-        # 변화 감지: 이전 7일 대비
-        new_exposure = []  # 이전엔 노출 없었는데 이번에 생긴 사이트
-        lost_exposure = []  # 이전엔 노출 있었는데 이번에 사라진 사이트
-        if prev_files:
-            prev_all = set(list(gsc_prev.keys()) + list(bing_stats.keys()))
-            for s in all_s:
-                g_now = gsc_recent.get(s, 0) + bing_stats.get(s, {}).get("keywords", 0)
-                g_prev = gsc_prev.get(s, 0)
-                if g_now > 0 and g_prev <= 0:
-                    new_exposure.append(s)
-                elif g_now <= 0 and g_prev > 0:
-                    lost_exposure.append(s)
-
-        bing_total_clk = sum(v.get("clicks", 0) for v in bing_stats.values())
-        bing_total_imp = sum(v.get("impressions", 0) for v in bing_stats.values())
-
-        msg_lines.extend([
-            "",
-            f"<b>🔍 Bing</b>",
-            f"  클릭: {bing_total_clk:,} | 노출: {bing_total_imp:,} | 사이트: {len(bing_stats)}개",
-            "",
-            f"<b>📋 7일 검색 노출 현황</b> (GSC+Bing)",
-            f"  노출 있음: {len(ok_sites)}개 | 노출 없음: {len(no_sites)}개 | 전체: {len(all_s)}개",
-        ])
-        if new_exposure:
-            msg_lines.append(f"  🆕 새로 노출: {', '.join(sorted(new_exposure))}")
-        if lost_exposure:
-            msg_lines.append(f"  📉 노출 중단: {', '.join(sorted(lost_exposure))}")
-        if no_sites:
-            msg_lines.append(f"  ⏳ 노출 없음: {', '.join(no_sites[:10])}")
-            if len(no_sites) > 10:
-                msg_lines.append(f"  ...외 {len(no_sites)-10}개")
-    except Exception as e:
-        log.error(f"색인 현황 생성 실패: {e}")
-
-    # 애드센스 수익 추이
-    try:
-        rev = api_get("/analysis/revenue-summary", {"days": 7})
-        today_rev   = rev.get("today_revenue", 0)
-        yest_rev    = rev.get("yesterday_revenue", 0)
-        avg7_rev    = rev.get("avg7_revenue", 0)
-        month_rev   = rev.get("month_revenue", 0)
-        today_rpm   = rev.get("today_rpm", 0)
-        yest_rpm    = rev.get("yesterday_rpm", 0)
-        today_pv    = rev.get("today_pv", 0)
-        yest_pv     = rev.get("yesterday_pv", 0)
-        top_sites   = rev.get("top_sites", [])[:3]
-        zero_sites  = rev.get("zero_revenue_sites", [])
-        daily_rev   = rev.get("daily_revenue", [])[:7]
-
-        def chg(now, prev):
-            if prev == 0:
-                return ""
-            p = (now - prev) / prev * 100
-            arrow = "▲" if p >= 0 else "▼"
-            return f"  {arrow} {p:+.1f}%"
-
-        msg_lines.extend([
-            "",
-            "<b>💰 애드센스 수익</b>",
-            f"  오늘        ${today_rev:.2f}{chg(today_rev, yest_rev)}",
-            f"  어제        ${yest_rev:.2f}",
-            f"  7일 평균    ${avg7_rev:.2f}",
-            f"  이번달 누적 ${month_rev:.2f}",
-            "",
-            f"  RPM  오늘 ${today_rpm:.2f} / 어제 ${yest_rpm:.2f}{chg(today_rpm, yest_rpm)}",
-            f"  PV   오늘 {today_pv:,} / 어제 {yest_pv:,}{chg(today_pv, yest_pv)}",
-        ])
-
-        # 7일 수익 추이 막대 차트
-        if daily_rev:
-            msg_lines.append("")
-            msg_lines.append("<b>📊 7일 수익 추이</b>")
-            msg_lines.append("<code>")
-            days = list(reversed(daily_rev))  # 오래된 날짜부터
-            max_rev = max((d.get("rev", 0) for d in days), default=1) or 0.01
-            bar_width = 12  # 막대 최대 길이
-            for d in days:
-                date_str = (d.get("date", "") or "")[-5:]  # MM-DD
-                r = d.get("rev", 0)
-                pv = d.get("pv", 0)
-                bar_len = int(r / max_rev * bar_width) if max_rev > 0 else 0
-                bar = "█" * bar_len + "░" * (bar_width - bar_len)
-                msg_lines.append(f"{date_str} {bar} ${r:.2f} ({pv:,}pv)")
-            msg_lines.append("</code>")
-
-            # 추세 판단
-            if len(days) >= 3:
-                recent3 = sum(d.get("rev", 0) for d in days[-3:]) / 3
-                older3  = sum(d.get("rev", 0) for d in days[:3]) / 3
-                if older3 > 0:
-                    trend_pct = (recent3 - older3) / older3 * 100
-                    if trend_pct > 10:
-                        msg_lines.append(f"  📈 최근 3일 상승세 (+{trend_pct:.0f}%)")
-                    elif trend_pct < -10:
-                        msg_lines.append(f"  📉 최근 3일 하락세 ({trend_pct:.0f}%)")
-                    else:
-                        msg_lines.append(f"  ➡️ 최근 3일 보합세 ({trend_pct:+.0f}%)")
-
-        if top_sites:
-            msg_lines.append("")
-            msg_lines.append("<b>🏆 TOP 사이트 (오늘)</b>")
-            for i, s in enumerate(top_sites, 1):
-                msg_lines.append(f"  {i}. {s.get('site','')}  ${s.get('rev',0):.2f} | RPM ${s.get('rpm',0):.2f}")
-
-        if zero_sites:
-            names = ", ".join(z.get("site","") for z in zero_sites[:5])
-            more  = f" 외 {len(zero_sites)-5}개" if len(zero_sites) > 5 else ""
-            msg_lines.append(f"  ⚠️ 수익 0: {names}{more}")
-
-    except Exception as e:
-        log.error(f"수익 리포트 생성 실패: {e}")
-        msg_lines.append("\n<b>💰 애드센스 수익</b>\n  데이터 조회 실패")
-
-    # 🎯 코칭 리포트 (CTR 개선 + 리라이트 대상)
-    try:
-        kw_data = api_get("/gsc/keywords", {"days": 7})
-        coach = api_get("/coaching/today")
-
-        # CTR 개선 기회: 노출 높은데 클릭 없거나 낮은 키워드
-        if isinstance(kw_data, list) and kw_data:
-            low_ctr = [k for k in kw_data
-                       if k.get("impressions", 0) >= 10
-                       and k.get("ctr", 0) < 3
-                       and k.get("avg_position", 99) <= 20]
-            low_ctr.sort(key=lambda x: x.get("impressions", 0), reverse=True)
-
-            if low_ctr:
-                msg_lines.append("")
-                msg_lines.append("<b>🎯 CTR 개선 기회</b> (노출↑ 클릭↓)")
-                msg_lines.append("<code>")
-                for k in low_ctr[:5]:
-                    q = k.get("query", "")[:25]
-                    site = k.get("site", "").replace("https://", "").replace("http://", "").split("/")[0]
-                    imp = k.get("impressions", 0)
-                    clk = k.get("clicks", 0)
-                    pos = k.get("avg_position", 0)
-                    msg_lines.append(f"#{pos:.0f} {q}")
-                    msg_lines.append(f"   {site} 노출:{imp} 클릭:{clk}")
-                msg_lines.append("</code>")
-                msg_lines.append("  💡 제목/메타 수정으로 CTR 개선 가능")
-
-        # 리라이트 대상 (노출 있는데 클릭 0, 순위 3~25)
-        if isinstance(coach, dict):
-            rw = coach.get("rewrite_targets", [])[:5]
-            if rw:
-                msg_lines.append("")
-                msg_lines.append("<b>✏️ 리라이트 추천</b> (순위 근접, 클릭 0)")
-                msg_lines.append("<code>")
-                for r in rw:
-                    q = r.get("query", "")[:25]
-                    site = r.get("site", "").replace("https://", "").replace("http://", "").split("/")[0]
-                    imp = r.get("imp", 0)
-                    pos = r.get("pos", 0)
-                    msg_lines.append(f"#{pos} {q}")
-                    msg_lines.append(f"   {site} 노출:{imp}")
-                msg_lines.append("</code>")
-                msg_lines.append("  💡 제목 리라이트 → 순위+CTR 동시 개선")
-
-            # 고RPM 페이지 (수익 효율 높은 콘텐츠)
-            top_rpm = coach.get("top_rpm_pages", [])[:3]
-            if top_rpm:
-                msg_lines.append("")
-                msg_lines.append("<b>💎 고수익 페이지 (RPM TOP)</b>")
-                for p in top_rpm:
-                    site = p.get("site", "")
-                    page = p.get("page", "").split("/")[-2] if p.get("page", "").endswith("/") else p.get("page", "").split("/")[-1]
-                    page = page[:30] if page else "?"
-                    rpm = p.get("rpm", 0)
-                    pv = p.get("pv", 0)
-                    rev = p.get("rev", 0)
-                    msg_lines.append(f"  ${rev:.2f} RPM ${rpm:.1f} ({pv}pv) {page}")
-                msg_lines.append("  💡 유사 주제로 추가 포스트 작성 추천")
-
-            # 수익 0 사이트 경고
-            zero = coach.get("zero_revenue_sites", [])
-            if zero:
-                names = ", ".join(z.get("site", "")[:20] for z in zero[:3])
-                more = f" 외 {len(zero)-3}개" if len(zero) > 3 else ""
-                msg_lines.append("")
-                msg_lines.append(f"  ⚠️ PV 있지만 수익 0: {names}{more}")
-                msg_lines.append("  💡 ads.txt/애드센스 코드 확인 필요")
-
-    except Exception as e:
-        log.error(f"코칭 리포트 생성 실패: {e}")
-
-    # 쿠팡 수익
-    try:
-        cp = api_get("/coupang/summary", {"days": 1})
-        cp_today = cp.get("total", {})
-        cp_rev   = cp_today.get("revenue", 0)
-        cp_ord   = cp_today.get("orders", 0)
-        cp_yest  = api_get("/coupang/summary", {"days": 2}).get("total", {})
-        cp_yrev  = cp_yest.get("revenue", 0) - cp_rev  # 어제분만
-        msg_lines.extend([
-            "",
-            f"<b>🛒 쿠팡 파트너스</b>",
-            f"  오늘 ₩{cp_rev:,.0f} ({cp_ord}건){chg(cp_rev, cp_yrev)}",
-        ])
-    except Exception as e:
-        log.error(f"쿠팡 리포트 실패: {e}")
-
-    msg_lines.extend(["", f"⏱ {elapsed:.1f}초 소요"])
-
-    send_telegram("\n".join(msg_lines))
-    log.info("텔레그램 알림 전송 완료")
+# NOTE: send_telegram_report() has been replaced by SyncMonitor.send_daily_report().
+# See cli/monitor.py for the new implementation.
 
 
 if __name__ == "__main__":

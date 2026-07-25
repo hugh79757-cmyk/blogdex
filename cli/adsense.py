@@ -1,6 +1,6 @@
-import pickle
 import sys
 from googleapiclient.discovery import build
+from google_auth import get_adsense_credentials
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -8,29 +8,10 @@ from rich import box
 console = Console()
 
 ACCOUNTS = [
-    {
-        "name": "twinssn",
-        "creds_path": "/Users/twinssn/Projects/blogdex/credentials/ADSENSE_CREDENTIALS_1twinssn.json",
-        "token_path": "/Users/twinssn/Projects/blogdex/credentials/token_1_twinssn.pickle",
-        "domains": ["rotcha.kr", "techpawz.com"],
-    },
-    {
-        "name": "informationhot",
-        "creds_path": "/Users/twinssn/Projects/blogdex/credentials/ADSENSE_CREDENTIALS_2informationhot.json",
-        "token_path": "/Users/twinssn/Projects/blogdex/credentials/token_2_informationhot.pickle",
-        "domains": ["informationhot.kr"],
-    },
-    {
-        "name": "aikorea24",
-        "creds_path": "/Users/twinssn/Projects/blogdex/credentials/ADSENSE_CREDENTIALS_3aikorea24.json",
-        "token_path": "/Users/twinssn/Projects/blogdex/credentials/token_3_aikorea24.pickle",
-        "domains": ["aikorea24.kr"],
-    },
+    {"name": "twinssn", "domains": ["rotcha.kr", "techpawz.com"]},
+    {"name": "informationhot", "domains": ["informationhot.kr"]},
+    {"name": "aikorea24", "domains": ["aikorea24.kr"]},
 ]
-
-def get_token(token_path):
-    with open(token_path, "rb") as f:
-        return pickle.load(f)
 
 def run():
     days = int(sys.argv[1]) if len(sys.argv) > 1 else 7
@@ -52,9 +33,9 @@ def run():
 
     grand_revenue = 0.0
 
-    for acct in ACCOUNTS:
+    for idx, acct in enumerate(ACCOUNTS):
         try:
-            creds = get_token(acct["token_path"])
+            creds = get_adsense_credentials(idx + 1)
             service = build("adsense", "v2", credentials=creds)
 
             # 계정 목록
